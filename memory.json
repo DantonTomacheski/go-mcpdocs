@@ -1,0 +1,69 @@
+{
+  "entities": [
+    {
+      "name": "DeepwikiProject",
+      "entityType": "project",
+      "observations": [
+        "Projeto Deepwiki: API de alta performance em Go para extração e fornecimento de documentação de repositórios GitHub.",
+        "Utiliza Gin, worker pools, integração com GitHub API, configuração via ambiente e shutdown gracioso.",
+        "Foco em fornecer contexto atualizado e confiável para LLMs e desenvolvedores.",
+        "Possui endpoints RESTful, processadores de documentação, e mecanismos de segurança e performance em evolução.",
+        "Entidade detalhada: Representa o núcleo do sistema Deepwiki, integrando componentes técnicos, objetivos de negócio e evolução contínua.",
+        "Relaciona-se com status, planejamento e objetivos Context7 para garantir alinhamento estratégico e operacional."
+      ]
+    },
+    {
+      "name": "DeepwikiNextSteps2025",
+      "entityType": "next_steps_plan",
+      "observations": [
+        "1. Autenticação e Segurança: Implementar JWT/OAuth, rate limiting.",
+        "2. Cache e Performance: Integrar cache (memória/Redis), otimizar pool de workers.",
+        "3. Expansão dos Processadores: Suportar múltiplos formatos, converter Markdown para HTML, enriquecer exemplos de código.",
+        "4. API e Integração: Novos endpoints REST, documentação Swagger/OpenAPI.",
+        "5. Resiliência e Observabilidade: Logging estruturado, métricas, testes de integração/carga.",
+        "6. User Experience: Exemplos de uso, respostas formatadas, health check detalhado, endpoint de feedback.",
+        "7. Preparação para Escalabilidade: Deploy multi-região, filas para processamento assíncrono.",
+        "Esses passos alinham o projeto ao objetivo de ser uma fonte robusta, segura e atualizada de documentação e exemplos para LLMs e desenvolvedores.",
+        "Este plano deve ser revisado a cada ciclo de planejamento para garantir alinhamento com as necessidades dos usuários e avanços tecnológicos em LLMs.",
+        "Prioridade inicial: autenticação e cache, pois são críticos para segurança e performance.",
+        "O sucesso do projeto será medido pela adoção por desenvolvedores e pela redução de respostas desatualizadas/hallucinadas em LLMs.",
+        "Entidade detalhada: Plano estratégico do projeto Deepwiki para 2025, contendo prioridades, critérios de sucesso e alinhamento com objetivos Context7."
+      ]
+    },
+    {
+      "name": "aonde-estamos.md",
+      "entityType": "documentation_status",
+      "observations": [
+        "Arquivo de status do projeto contendo resumo do progresso, funcionalidades implementadas, etapas do fluxo do sistema e próximos passos.",
+        "Atualizado periodicamente para refletir o estado real do projeto Deepwiki/Context7.",
+        "Serve como referência para onboarding, planejamento e acompanhamento de evolução do projeto.",
+        "Inclui seção 'Fluxo do Sistema em 9 Etapas' para detalhar o funcionamento do backend.",
+        "É o principal ponto de referência para entender rapidamente o estágio e as prioridades do projeto.",
+        "Deve ser mantido sincronizado com a evolução das funcionalidades e decisões estratégicas.",
+        "Entidade detalhada: Documento vivo de status do projeto, central para onboarding, acompanhamento e planejamento contínuo."
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "from": "DeepwikiNextSteps2025",
+      "relationType": "is next steps plan for",
+      "to": "DeepwikiProject"
+    },
+    {
+      "from": "aonde-estamos.md",
+      "relationType": "documents status of",
+      "to": "DeepwikiProject"
+    },
+    {
+      "from": "aonde-estamos.md",
+      "relationType": "summarizes",
+      "to": "DeepwikiNextSteps2025"
+    },
+    {
+      "from": "aonde-estamos.md",
+      "relationType": "is updated from",
+      "to": "DeepwikiProject"
+    }
+  ]
+}

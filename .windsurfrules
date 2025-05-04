@@ -1,0 +1,101 @@
+# Windsurf Rules: MCP Memory First Protocol (Updated)
+
+```
+# MCP Memory First Protocol
+
+## Primary Rule
+Before responding to any request involving project code or architecture, Windsurf MUST FIRST check existing knowledge in MCP memory using the appropriate operations with correct parameters:
+
+## Memory Access Commands (WITH CORRECT PARAMETERS)
+
+### For Complete Graph Structure:
+read_graph
+{
+  "format": "detailed"  
+}
+
+### For Searching Components:
+search_nodes
+{
+  "query": "RELEVANT_KEYWORD"
+}
+
+### For Opening Specific Components:
+open_nodes
+{
+  "names": ["main.main", "api.Handler", "github.Client"]
+}
+
+## Recommended Search Patterns
+Always search for components using their fully qualified names:
+- Functions: "name": "package.FunctionName" (e.g., "main.main", "github.GetRepository")
+- Structs/Types: "name": "package.TypeName" (e.g., "models.Documentation", "config.Config")
+- Methods: "name": "package.Type.MethodName" (e.g., "api.Handler.GetRepository")
+
+## Implementation Guidelines
+
+### For New Requests:
+1. Begin with:
+   ```
+   read_graph
+   {
+     "format": "detailed"
+   }
+   ```
+
+2. Then search for relevant components:
+   ```
+   search_nodes
+   {
+     "query": "KEYWORDS_FROM_REQUEST"
+   }
+   ```
+
+### For Component Modifications:
+1. First open the specific component:
+   ```
+   open_nodes
+   {
+     "names": ["exact.ComponentName"]
+   }
+   ```
+
+2. Then search for related components:
+   ```
+   search_nodes
+   {
+     "query": "RelatedFeature"
+   }
+   ```
+
+### Error Handling
+If `read_graph` returns an error, use targeted searches instead:
+   ```
+   search_nodes
+   {
+     "query": "main"
+   }
+   ```
+Then iterate through important subsystems with additional searches.
+
+## Anti-Hallucination Measures
+- Only trust information explicitly found in MCP memory
+- If a component isn't found in MCP memory, note this gap rather than inventing details
+- When uncertain, use multiple search queries with different terms to gather context
+- Always note which MCP memory operations were used and what information was found
+
+## Response Format
+When responding after checking MCP memory, Windsurf should:
+1. Indicate which MCP memory operations were used with their parameters
+2. Summarize the relevant information found
+3. Base all suggestions on this verified information
+4. Note any information gaps in MCP memory
+
+## Continuous Learning
+After implementing changes, update MCP memory with:
+- `create_entities` for new components (with correct naming convention)
+- `create_relations` for new connections
+- `add_observations` for details on existing components
+```
+
+This updated protocol specifically addresses the parameter issue and provides the correct format for querying the MCP memory. It includes workarounds for the `read_graph` error by suggesting alternative search patterns and specifies the exact naming conventions to use when searching for different types of components.
