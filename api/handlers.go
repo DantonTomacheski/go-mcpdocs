@@ -33,6 +33,7 @@ func NewHandler(client *github.Client, docRepo *repository.DocumentRepository, l
 }
 
 // GetRepository handles fetching repository information
+// Agora também busca automaticamente a documentação do repositório
 func (h *Handler) GetRepository(c *gin.Context) {
 	owner := c.Param("owner")
 	repo := c.Param("repo")
@@ -46,6 +47,10 @@ func (h *Handler) GetRepository(c *gin.Context) {
 		return
 	}
 
+	// Verifica se o cliente deseja explicitamente não incluir documentação
+	skipDocs := c.Query("skip_docs") == "true"
+
+	// Obtém informações básicas do repositório
 	repository, err := h.GitHubClient.GetRepository(c.Request.Context(), owner, repo)
 	if err != nil {
 		statusCode := http.StatusInternalServerError
@@ -65,10 +70,64 @@ func (h *Handler) GetRepository(c *gin.Context) {
 		return
 	}
 
+	// Se skipDocs for verdadeiro, retorna apenas as informações do repositório
+	if skipDocs {
+		c.JSON(http.StatusOK, models.SuccessResponse{
+			Status:  http.StatusOK,
+			Message: "Repository retrieved successfully (without docs)",
+			Data:    repository,
+		})
+		return
+	}
+
+	// Configura um contexto que pode ser cancelado quando o cliente desconecta
+	ctx, cancel := context.WithCancel(c.Request.Context())
+	defer cancel()
+
+	// Configura o cancelamento quando o cliente desconecta
+	go func() {
+		<-c.Request.Context().Done()
+		cancel()
+	}()
+
+	// Busca documentação do repositório em segundo plano
+	h.Logger.Printf("Auto-fetching documentation for %s/%s", owner, repo)
+	documentationItems, docErr := h.GitHubClient.GetRepositoryDocumentation(ctx, owner, repo, h.WorkerPoolSize)
+
+	// Se houver documentação e não houver erro, armazena-a no MongoDB se configurado
+	if docErr == nil && len(documentationItems) > 0 && h.DocumentRepository != nil && h.DocumentRepository.IsEnabled() {
+		h.Logger.Printf("Processing and storing documentation in TXT format for %s/%s", owner, repo)
+		if storeErr := h.DocumentRepository.StoreDocumentation(ctx, documentationItems); storeErr != nil {
+			h.Logger.Printf("Failed to store processed documentation in MongoDB: %v", storeErr)
+		} else {
+			h.Logger.Printf("Successfully processed and stored documentation in MongoDB for %s/%s", owner, repo)
+		}
+	}
+
+	// Prepara a resposta com informações do repositório e documentação
+	response := map[string]interface{}{
+		"repository": repository,
+	}
+
+	// Adiciona a documentação à resposta se estiver disponível
+	if docErr == nil && len(documentationItems) > 0 {
+		response["documentation"] = map[string]interface{}{
+			"message":            fmt.Sprintf("Successfully retrieved %d documentation files.", len(documentationItems)),
+			"processed_files":    len(documentationItems),
+			"documentation_items": documentationItems,
+		}
+	} else if docErr != nil {
+		// Adiciona informação de erro da documentação, mas não falha a resposta principal
+		response["documentation"] = map[string]interface{}{
+			"error":   "Could not retrieve documentation",
+			"message": docErr.Error(),
+		}
+	}
+
 	c.JSON(http.StatusOK, models.SuccessResponse{
 		Status:  http.StatusOK,
-		Message: "Repository retrieved successfully",
-		Data:    repository,
+		Message: "Repository retrieved successfully with documentation",
+		Data:    response,
 	})
 }
 

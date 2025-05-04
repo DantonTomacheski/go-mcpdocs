@@ -1,33 +1,37 @@
-# Windsurf Rules: MCP Memory First Protocol (Updated)
-
-```
-# MCP Memory First Protocol
+# Memory First Protocol
 
 ## Primary Rule
-Before responding to any request involving project code or architecture, Windsurf MUST FIRST check existing knowledge in MCP memory using the appropriate operations with correct parameters:
+Before responding to any request involving project code or architecture, Windsurf MUST FIRST check existing knowledge in the @memory.json file located in the project root directory.
 
-## Memory Access Commands (WITH CORRECT PARAMETERS)
+## Memory Access Method
 
-### For Complete Graph Structure:
-read_graph
-{
-  "format": "detailed"  
-}
+### Reading the Memory File:
+1. Open and parse the @memory.json file
+2. The file follows this structure:
+   {
+     "entities": [
+       { "name": "ComponentName", "entityType": "Type", "observations": ["..."] }
+     ],
+     "relations": [
+       { "from": "ComponentA", "to": "ComponentB", "relationType": "depends_on" }
+     ]
+   }
 
-### For Searching Components:
-search_nodes
-{
-  "query": "RELEVANT_KEYWORD"
-}
+### Searching Components:
+- Search within the "entities" array for components matching the query
+- Filter by name, entityType, or content within observations
+- For targeted searches, use:
+  - Exact name match: entities.filter(e => e.name === "main.main")
+  - Keyword in observations: entities.filter(e => e.observations.some(o => o.includes("KEYWORD")))
+  - By type: entities.filter(e => e.entityType === "Function")
 
-### For Opening Specific Components:
-open_nodes
-{
-  "names": ["main.main", "api.Handler", "github.Client"]
-}
+### Finding Related Components:
+- Use the "relations" array to find connected components
+- Find dependencies: relations.filter(r => r.from === "ComponentName")
+- Find dependents: relations.filter(r => r.to === "ComponentName")
 
-## Recommended Search Patterns
-Always search for components using their fully qualified names:
+## Component Naming Conventions
+Always look for components using their fully qualified names:
 - Functions: "name": "package.FunctionName" (e.g., "main.main", "github.GetRepository")
 - Structs/Types: "name": "package.TypeName" (e.g., "models.Documentation", "config.Config")
 - Methods: "name": "package.Type.MethodName" (e.g., "api.Handler.GetRepository")
@@ -35,67 +39,40 @@ Always search for components using their fully qualified names:
 ## Implementation Guidelines
 
 ### For New Requests:
-1. Begin with:
-   ```
-   read_graph
-   {
-     "format": "detailed"
-   }
-   ```
-
-2. Then search for relevant components:
-   ```
-   search_nodes
-   {
-     "query": "KEYWORDS_FROM_REQUEST"
-   }
-   ```
+1. Begin by reading the entire @memory.json file to understand the project structure
+2. Search for entities related to the request keywords
+3. Look for relations connecting relevant components
+4. Analyze the observations for each relevant component
 
 ### For Component Modifications:
-1. First open the specific component:
-   ```
-   open_nodes
-   {
-     "names": ["exact.ComponentName"]
-   }
-   ```
-
-2. Then search for related components:
-   ```
-   search_nodes
-   {
-     "query": "RelatedFeature"
-   }
-   ```
+1. Find the specific component in @memory.json
+2. Find related components using the relations array
+3. Review all observations before suggesting modifications
+4. Verify dependencies to understand impact of changes
 
 ### Error Handling
-If `read_graph` returns an error, use targeted searches instead:
-   ```
-   search_nodes
-   {
-     "query": "main"
-   }
-   ```
-Then iterate through important subsystems with additional searches.
+If @memory.json is missing or empty:
+1. Clearly indicate that memory data is unavailable
+2. Request more context about the project
+3. Avoid making assumptions about the code structure
 
 ## Anti-Hallucination Measures
-- Only trust information explicitly found in MCP memory
-- If a component isn't found in MCP memory, note this gap rather than inventing details
-- When uncertain, use multiple search queries with different terms to gather context
-- Always note which MCP memory operations were used and what information was found
+- Only trust information explicitly found in @memory.json
+- If a component isn't found in the file, note this gap rather than inventing details
+- When uncertain, search for related components by reviewing all relations
+- Always note what information was found in @memory.json
 
 ## Response Format
-When responding after checking MCP memory, Windsurf should:
-1. Indicate which MCP memory operations were used with their parameters
-2. Summarize the relevant information found
+When responding after checking @memory.json, Windsurf should:
+1. Indicate that information was retrieved from @memory.json
+2. Summarize the relevant components and relations found
 3. Base all suggestions on this verified information
-4. Note any information gaps in MCP memory
+4. Note any information gaps in the memory data
 
 ## Continuous Learning
-After implementing changes, update MCP memory with:
-- `create_entities` for new components (with correct naming convention)
-- `create_relations` for new connections
-- `add_observations` for details on existing components
-```
+After implementing changes, update @memory.json with:
+- New entities for new components (with correct naming convention)
+- New relations for new connections
+- Additional observations for existing components
 
-This updated protocol specifically addresses the parameter issue and provides the correct format for querying the MCP memory. It includes workarounds for the `read_graph` error by suggesting alternative search patterns and specifies the exact naming conventions to use when searching for different types of components.
+The updated file should maintain the correct JSON structure with "entities" and "relations" arrays.

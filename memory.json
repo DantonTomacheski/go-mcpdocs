@@ -42,9 +42,479 @@
         "Deve ser mantido sincronizado com a evolução das funcionalidades e decisões estratégicas.",
         "Entidade detalhada: Documento vivo de status do projeto, central para onboarding, acompanhamento e planejamento contínuo."
       ]
+    },
+    {
+      "name": "config.Config",
+      "entityType": "estrutura",
+      "observations": [
+        "Estrutura responsável por manter a configuração da aplicação",
+        "Armazena GitHubToken, Port, WorkerPoolSize e RequestTimeout",
+        "Usado pelo servidor principal para configurar comportamentos da API",
+        "Carregado a partir de variáveis de ambiente ou arquivo .env",
+        "Inclui valores padrão para parâmetros não especificados nas variáveis de ambiente"
+      ]
+    },
+    {
+      "name": "config.Load",
+      "entityType": "função",
+      "observations": [
+        "Função responsável por carregar a configuração da aplicação a partir de variáveis de ambiente",
+        "Utiliza o pacote godotenv para carregar variáveis de um arquivo .env se existir",
+        "Valida a presença obrigatória do token do GitHub",
+        "Define valores padrão para porta (8080), tamanho do pool de workers (5) e timeout de requisições (30s)",
+        "Retorna um ponteiro para uma estrutura Config preenchida ou um erro se a configuração for inválida",
+        "Realiza validações para garantir valores positivos para parâmetros numéricos"
+      ]
+    },
+    {
+      "name": "api.Handler",
+      "entityType": "estrutura",
+      "observations": [
+        "Estrutura central que gerencia os endpoints da API REST",
+        "Possui dependência do cliente GitHub para acessar repositórios e documentação",
+        "Configura o tamanho do pool de workers para processamento paralelo",
+        "Implementa endpoints para buscar repositórios, documentação e realizar buscas",
+        "Gerencia erros e retorna códigos HTTP apropriados para diferentes situações",
+        "Fornece endpoint de health check para monitoramento da API",
+        "Manipula paginação nos resultados de busca de repositórios",
+        "Utiliza cancelamento de contexto para interromper operações quando o cliente desconecta"
+      ]
+    },
+    {
+      "name": "api.NewHandler",
+      "entityType": "função",
+      "observations": [
+        "Função responsável por criar novas instâncias do Handler da API",
+        "Recebe como parâmetros um cliente GitHub e o tamanho do pool de workers",
+        "Inicializa o handler com as dependências necessárias para operar",
+        "Retorna um ponteiro para a estrutura Handler inicializada",
+        "Usada na configuração inicial da API durante o startup da aplicação"
+      ]
+    },
+    {
+      "name": "api.Handler.GetRepository",
+      "entityType": "método",
+      "observations": [
+        "Método responsável por processar requisições para obter informações de um repositório GitHub",
+        "Extrai os parâmetros owner e repo da URL e valida se estão presentes",
+        "Utiliza o cliente GitHub para buscar informações do repositório",
+        "Gerencia diferentes tipos de erros que podem ocorrer durante a busca (repositório não encontrado, token inválido, limite de requisições excedido)",
+        "Retorna códigos HTTP apropriados para diferentes situações de erro",
+        "Em caso de sucesso, retorna os dados do repositório em formato JSON com status 200"
+      ]
+    },
+    {
+      "name": "api.Handler.GetRepositoryDocumentation",
+      "entityType": "método",
+      "observations": [
+        "Método central da API que processa requisições para obter documentação de repositórios GitHub",
+        "Implementa a funcionalidade principal do projeto Deepwiki de extrair documentação",
+        "Utiliza cancelamento de contexto para interromper operações quando o cliente desconecta",
+        "Configura o processamento paralelo com worker pools para eficiência",
+        "Gerencia erros específicos relacionados à obtenção de documentação",
+        "Trata situações como repositório não encontrado, nenhum arquivo de documentação encontrado, e falhas de conectividade",
+        "Retorna uma estrutura de resposta formatada contendo detalhes sobre o repositório e seus arquivos de documentação",
+        "Utiliza o modelo RepositoryDocsResponse para encapsular a resposta com contagem de arquivos processados"
+      ]
+    },
+    {
+      "name": "api.Handler.SearchRepositories",
+      "entityType": "método",
+      "observations": [
+        "Método responsável por processar requisições para buscar repositórios no GitHub",
+        "Extrai e valida o parâmetro de consulta 'q' da URL",
+        "Aprimora automaticamente a consulta adicionando termos relacionados a documentação se não estiverem presentes",
+        "Implementa paginação com parâmetros page e per_page, com valores padrão e validação",
+        "Utiliza o cliente GitHub para executar a busca de repositórios",
+        "Trata erros como token inválido e limites de requisição excedidos",
+        "Retorna resultados paginados em formato JSON com metadados de paginação",
+        "Fornece informações sobre a página atual, itens por página e link para próxima página"
+      ]
+    },
+    {
+      "name": "github.Client",
+      "entityType": "estrutura",
+      "observations": [
+        "Componente fundamental que implementa toda a comunicação com a API do GitHub",
+        "Encapsula o cliente oficial do GitHub com funcionalidades adicionais específicas para o projeto",
+        "Implementa controle de timeout para as requisições",
+        "Fornece métodos para buscar repositórios, documentação e realizar buscas",
+        "Implementa processamento paralelo para extração de documentação usando worker pools",
+        "Realiza busca inteligente de arquivos de documentação, como arquivos markdown em diretórios específicos",
+        "Trata erros da API do GitHub de forma centralizada, convertendo-os em mensagens mais amigáveis",
+        "Implementa mecanismos para lidar com limites de taxa (rate limits) da API do GitHub"
+      ]
+    },
+    {
+      "name": "github.Client.GetRepositoryDocumentation",
+      "entityType": "método",
+      "observations": [
+        "Método central que implementa a extração concorrente de documentação de repositórios GitHub",
+        "Utiliza worker pools para processamento paralelo, com limite de concorrência configurável",
+        "Implementa uma estratégia inteligente de busca: primeiro verifica o diretório /docs, depois faz busca geral se necessário",
+        "Manipula contexto cancelável para interromper operações quando o cliente desconecta",
+        "Implementa retry com backoff para lidar com rate limits da API do GitHub",
+        "Processa arquivos markdown e outros documentos comuns como README, CONTRIBUTING, etc.",
+        "Utiliza métodos auxiliares como findDocumentation, getFileContent e isDocumentationFile",
+        "Devolve uma lista de objetos Documentation com metadados e conteúdo dos arquivos processados"
+      ]
+    },
+    {
+      "name": "models.Repository",
+      "entityType": "estrutura",
+      "observations": [
+        "Modelo que representa um repositório do GitHub",
+        "Contém atributos como ID, Nome, Nome Completo, Descrição e informações de versão",
+        "Armazena estatísticas como estrelas, forks, linguagem principal e tópicos",
+        "Inclui metadados como ramo padrão, datas de criação e atualização",
+        "Estruturado com tags JSON para serialização/desserialização adequada na API",
+        "Utilizado como parte da resposta para endpoints da API",
+        "Define campos opcionais como DocumentationURL para casos específicos"
+      ]
+    },
+    {
+      "name": "models.Documentation",
+      "entityType": "estrutura",
+      "observations": [
+        "Modelo central que representa um arquivo de documentação extraído de um repositório GitHub",
+        "Armazena informações sobre o repositório como ID e nome para rastreabilidade",
+        "Mantém o caminho (path) do arquivo no repositório para referência",
+        "Contém o conteúdo completo do arquivo de documentação e seu tipo (geralmente markdown)",
+        "Armazena metadados como tamanho, SHA (hash) e URL de acesso ao arquivo original",
+        "Utilizado como parte da resposta para o endpoint principal de extração de documentação",
+        "Estruturado com tags JSON para serialização/desserialização na API REST"
+      ]
+    },
+    {
+      "name": "models.RepositoryDocsResponse",
+      "entityType": "estrutura",
+      "observations": [
+        "Estrutura especializada para a resposta do endpoint principal de extração de documentação",
+        "Agrega todos os itens de documentação encontrados em um repositório",
+        "Inclui metadados como status HTTP e mensagem informativa sobre o resultado da operação",
+        "Armazena informações sobre o repositório (proprietário e nome) para contexto",
+        "Fornece uma contagem dos arquivos de documentação processados",
+        "Utiliza um array de objetos Documentation para entregar o conteúdo completo",
+        "Retornada pelo método GetRepositoryDocumentation do Handler da API",
+        "Estruturada com tags JSON para serialização adequada na resposta HTTP"
+      ]
+    },
+    {
+      "name": "api.SetupRouter",
+      "entityType": "função",
+      "observations": [
+        "Função responsável por configurar todas as rotas da API do projeto",
+        "Configura middlewares para CORS e timeout de requisições",
+        "Define o endpoint de health check para monitoramento da API",
+        "Estrutura as rotas da API com prefixo /api/v1 seguindo boas práticas REST",
+        "Mapeia os endpoints para os métodos apropriados do Handler",
+        "Configura endpoints para obtenção de repositórios, documentação e busca",
+        "Inclui endpoints especializados para obter documentação diretamente de URLs",
+        "Retorna o router configurado para ser utilizado pelo servidor HTTP"
+      ]
+    },
+    {
+      "name": "api.corsMiddleware",
+      "entityType": "função",
+      "observations": [
+        "Middleware responsável por gerenciar cabeçalhos CORS (Cross-Origin Resource Sharing)",
+        "Permite requisições de diferentes origens, necessário para APIs consumidas por frontends em domínios diferentes",
+        "Configura cabeçalhos Access-Control-Allow-Origin, Methods e Headers",
+        "Gerencia requisições OPTIONS usadas para preflight de CORS",
+        "Retorna um HTTP 204 (No Content) para requisições OPTIONS",
+        "Implementado como uma factory que retorna uma HandlerFunc do Gin",
+        "Um componente essencial de segurança para APIs web modernas"
+      ]
+    },
+    {
+      "name": "api.timeoutMiddleware",
+      "entityType": "função",
+      "observations": [
+        "Middleware responsável por adicionar timeout às requisições HTTP",
+        "Previne que requisições fiquem pendentes indefinidamente, melhorando a resiliência da API",
+        "Utiliza context.WithTimeout para criar um contexto com tempo limite",
+        "Ignora requisições de streaming (text/event-stream) onde timeouts são inadequados",
+        "Configurado com duração padrão de um minuto no SetupRouter",
+        "Implementado como uma factory que aceita a duração do timeout como parâmetro",
+        "Componente crucial para garantir performance e evitar acumulação de conexões pendentes"
+      ]
+    },
+    {
+      "name": "database.DocStorage",
+      "entityType": "estrutura",
+      "observations": [
+        "Versão leve da Documentation para armazenamento otimizado no MongoDB",
+        "Contém campos como RepoID, RepoName, Filename, ProcessedPath, ContentType, Size, SnippetsCount, Content",
+        "Armazena o conteúdo da documentação em formato TXT para economizar espaço",
+        "Inclui timestamp de criação e atualização para rastreabilidade",
+        "Implementado para tornar a armazenamento mais eficiente para planos gratuitos do MongoDB"
+      ]
+    },
+    {
+      "name": "database.Client",
+      "entityType": "classe",
+      "observations": [
+        "Cliente para operações MongoDB no projeto Deepwiki",
+        "Gerencia conexão, operações CRUD e timeout para o banco de dados",
+        "Utiliza o driver oficial MongoDB para Go",
+        "Mantém referências para database e collections específicas",
+        "Implementa métodos especializados para armazenamento e recuperação de documentação"
+      ]
+    },
+    {
+      "name": "database.Client.StoreProcessedDocumentation",
+      "entityType": "método",
+      "observations": [
+        "Armazena documentação processada no formato TXT no MongoDB",
+        "Recebe parâmetros owner, repo, filename, content e snippetsCount",
+        "Cria um caminho processado no formato /owner/repo/filename",
+        "Armazena metadados importantes como tamanho e contagem de snippets",
+        "Substitui o método StoreDocumentation anterior, oferecendo melhor eficiência"
+      ]
+    },
+    {
+      "name": "processor.TextFormatter",
+      "entityType": "classe",
+      "observations": [
+        "Responsável por formatar snippets de código no formato TXT desejado",
+        "Implementa métodos para converter conteúdo bruto em formato estruturado",
+        "Gera cabeçalhos com TITLE, DESCRIPTION, SOURCE e CODE para cada snippet",
+        "Formata URLs de source para um formato mais limpo e legível",
+        "Cria separadores entre snippets para melhor legibilidade"
+      ]
+    },
+    {
+      "name": "processor.TextFormatter.ProcessAndFormatDocumentation",
+      "entityType": "método",
+      "observations": [
+        "Processa e formata a documentação bruta em formato TXT estruturado",
+        "Filtra documentos relevantes e extrai snippets de código",
+        "Simplifica URLs de SOURCE para o formato /owner/repo/path",
+        "Gera um nome de arquivo baseado no repositório",
+        "Retorna o nome do arquivo, o texto formatado e a contagem de snippets"
+      ]
+    },
+    {
+      "name": "repository.DocumentRepository",
+      "entityType": "classe",
+      "observations": [
+        "Repositório que gerencia operações de armazenamento e recuperação de documentos",
+        "Faz a ponte entre a API e o banco de dados MongoDB",
+        "Utiliza o TextFormatter para processar documentação antes de armazenar",
+        "Implementa verificação de habilitação do MongoDB (enabled flag)",
+        "Oferece métodos para armazenar e recuperar documentação processada"
+      ]
+    },
+    {
+      "name": "repository.DocumentRepository.StoreDocumentation",
+      "entityType": "método",
+      "observations": [
+        "Processa e armazena documentação no formato TXT no MongoDB",
+        "Extrai owner/repo do nome do documento",
+        "Utiliza o TextFormatter para processar e formatar a documentação",
+        "Verifica se existem snippets antes de armazenar",
+        "Usa o cliente MongoDB para persistir os dados processados"
+      ]
+    },
+    {
+      "name": "github.Client.listDocFilesInPath",
+      "entityType": "método",
+      "observations": [
+        "Lista recursivamente todos os arquivos markdown em um caminho específico",
+        "Substitui o método listDocsDirectoryFiles, tornando-o mais flexível",
+        "Permite listar arquivos em qualquer caminho de documentação (docs/, src/content, etc.)",
+        "Filtra apenas arquivos markdown e documentação relevantes",
+        "Implementado para suportar diferentes estruturas de repositório"
+      ]
+    },
+    {
+      "name": "github.Client.listFilesRecursively",
+      "entityType": "método",
+      "observations": [
+        "Busca recursivamente todos os arquivos em um diretório e seus subdiretórios",
+        "Método auxiliar usado por listDocFilesInPath",
+        "Navega pela estrutura de diretórios do GitHub de forma recursiva",
+        "Acumula os caminhos de arquivo encontrados em um slice",
+        "Continua a busca mesmo após erros em subdiretórios para maximizar a coleta"
+      ]
     }
   ],
   "relations": [
+    {
+      "from": "config.Config",
+      "relationType": "configura",
+      "to": "DeepwikiProject"
+    },
+    {
+      "from": "config.Load",
+      "relationType": "cria",
+      "to": "config.Config"
+    },
+    {
+      "from": "api.Handler",
+      "relationType": "implementa",
+      "to": "DeepwikiProject"
+    },
+    {
+      "from": "api.Handler",
+      "relationType": "utiliza",
+      "to": "config.Config"
+    },
+    {
+      "from": "api.NewHandler",
+      "relationType": "cria",
+      "to": "api.Handler"
+    },
+    {
+      "from": "api.Handler.GetRepository",
+      "relationType": "pertence_a",
+      "to": "api.Handler"
+    },
+    {
+      "from": "api.Handler.GetRepository",
+      "relationType": "utiliza",
+      "to": "github.Client"
+    },
+    {
+      "from": "api.Handler.GetRepositoryDocumentation",
+      "relationType": "pertence_a",
+      "to": "api.Handler"
+    },
+    {
+      "from": "api.Handler.GetRepositoryDocumentation",
+      "relationType": "utiliza",
+      "to": "github.Client"
+    },
+    {
+      "from": "api.Handler.GetRepositoryDocumentation",
+      "relationType": "implementa_funcionalidade_principal",
+      "to": "DeepwikiProject"
+    },
+    {
+      "from": "api.Handler.SearchRepositories",
+      "relationType": "pertence_a",
+      "to": "api.Handler"
+    },
+    {
+      "from": "api.Handler.SearchRepositories",
+      "relationType": "utiliza",
+      "to": "github.Client"
+    },
+    {
+      "from": "api.Handler.SearchRepositories",
+      "relationType": "suporta",
+      "to": "DeepwikiProject"
+    },
+    {
+      "from": "github.Client",
+      "relationType": "implementa_acesso_externo",
+      "to": "DeepwikiProject"
+    },
+    {
+      "from": "api.Handler",
+      "relationType": "dependência",
+      "to": "github.Client"
+    },
+    {
+      "from": "github.Client",
+      "relationType": "converte_dados",
+      "to": "models.Repository"
+    },
+    {
+      "from": "github.Client",
+      "relationType": "converte_dados",
+      "to": "models.Documentation"
+    },
+    {
+      "from": "github.Client.GetRepositoryDocumentation",
+      "relationType": "pertence_a",
+      "to": "github.Client"
+    },
+    {
+      "from": "github.Client.GetRepositoryDocumentation",
+      "relationType": "implementa_funcionalidade_core",
+      "to": "DeepwikiProject"
+    },
+    {
+      "from": "api.Handler.GetRepositoryDocumentation",
+      "relationType": "depende_de",
+      "to": "github.Client.GetRepositoryDocumentation"
+    },
+    {
+      "from": "github.Client",
+      "relationType": "usa",
+      "to": "models.Repository"
+    },
+    {
+      "from": "api.Handler",
+      "relationType": "retorna",
+      "to": "models.Repository"
+    },
+    {
+      "from": "github.Client.GetRepositoryDocumentation",
+      "relationType": "gera",
+      "to": "models.Documentation"
+    },
+    {
+      "from": "api.Handler.GetRepositoryDocumentation",
+      "relationType": "retorna",
+      "to": "models.Documentation"
+    },
+    {
+      "from": "models.Documentation",
+      "relationType": "componente_de",
+      "to": "models.RepositoryDocsResponse"
+    },
+    {
+      "from": "models.RepositoryDocsResponse",
+      "relationType": "resposta_de",
+      "to": "api.Handler.GetRepositoryDocumentation"
+    },
+    {
+      "from": "models.RepositoryDocsResponse",
+      "relationType": "estrutura_primaria",
+      "to": "DeepwikiProject"
+    },
+    {
+      "from": "api.SetupRouter",
+      "relationType": "configura",
+      "to": "DeepwikiProject"
+    },
+    {
+      "from": "api.SetupRouter",
+      "relationType": "utiliza",
+      "to": "api.Handler"
+    },
+    {
+      "from": "api.SetupRouter",
+      "relationType": "utiliza",
+      "to": "api.corsMiddleware"
+    },
+    {
+      "from": "api.SetupRouter",
+      "relationType": "utiliza",
+      "to": "api.timeoutMiddleware"
+    },
+    {
+      "from": "api.corsMiddleware",
+      "relationType": "protege",
+      "to": "DeepwikiProject"
+    },
+    {
+      "from": "api.timeoutMiddleware",
+      "relationType": "protege",
+      "to": "DeepwikiProject"
+    },
+    {
+      "from": "main.main",
+      "relationType": "inicia",
+      "to": "DeepwikiProject"
+    },
+    {
+      "from": "main.main",
+      "relationType": "configura",
+      "to": "api.SetupRouter"
+    },
     {
       "from": "DeepwikiNextSteps2025",
       "relationType": "is next steps plan for",
@@ -64,6 +534,51 @@
       "from": "aonde-estamos.md",
       "relationType": "is updated from",
       "to": "DeepwikiProject"
+    },
+    {
+      "from": "api.Handler.GetRepositoryDocumentation",
+      "relationType": "utiliza",
+      "to": "repository.DocumentRepository"
+    },
+    {
+      "from": "api.Handler.GetRepository",
+      "relationType": "utiliza",
+      "to": "repository.DocumentRepository"
+    },
+    {
+      "from": "repository.DocumentRepository",
+      "relationType": "depende_de",
+      "to": "database.Client"
+    },
+    {
+      "from": "repository.DocumentRepository",
+      "relationType": "utiliza",
+      "to": "processor.TextFormatter"
+    },
+    {
+      "from": "database.Client",
+      "relationType": "armazena",
+      "to": "database.DocStorage"
+    },
+    {
+      "from": "github.Client.GetRepositoryDocumentation",
+      "relationType": "chama",
+      "to": "github.Client.listDocFilesInPath"
+    },
+    {
+      "from": "repository.DocumentRepository.StoreDocumentation",
+      "relationType": "chama",
+      "to": "database.Client.StoreProcessedDocumentation"
+    },
+    {
+      "from": "processor.TextFormatter.ProcessAndFormatDocumentation",
+      "relationType": "gera",
+      "to": "database.DocStorage"
+    },
+    {
+      "from": "github.Client.listDocFilesInPath",
+      "relationType": "chama",
+      "to": "github.Client.listFilesRecursively"
     }
   ]
 }
