@@ -63,61 +63,70 @@ func (c *Client) GetRepositoryDocumentation(ctx context.Context, owner, repo str
 	var docPaths []string
 	searchInDocs := false
 
-	// 1. Check if the /docs directory exists
-	log.Printf("Checking existence of /docs directory for %s/%s...\n", owner, repo)
-	docsDirOpts := &github.RepositoryContentGetOptions{Ref: defaultBranch}
-	// We only care about the error response here to check for 404
-	_, _, _, err = c.client.Repositories.GetContents(ctx, owner, repo, "docs", docsDirOpts)
-
-	if err == nil {
-		// /docs exists (or is accessible)
-		log.Printf("/docs directory found (or accessible) for %s/%s. Searching within /docs.\n", owner, repo)
-		searchInDocs = true
-	} else {
-		// Check if the error is 404 Not Found
-		ghErr, ok := err.(*github.ErrorResponse)
-		if ok && ghErr.Response.StatusCode == http.StatusNotFound {
-			log.Printf("/docs directory not found for %s/%s. Falling back to repository-wide search.\n", owner, repo)
-			searchInDocs = false // Explicitly set to false for clarity
+	// Define caminhos comuns de documentação em diferentes repositórios
+	commonDocPaths := []string{
+		"docs",           // Caminho padrão (Next.js, Vue, etc)
+		"src/content",    // React.dev
+		"Documentation",  // Swift, alguns projetos da Apple
+		"documentation", // Variação com letra minúscula
+		"doc",           // Alguns projetos antigos
+	}
+	
+	// Variável para armazenar o caminho de documentação encontrado
+	var foundDocPath string
+	
+	// 1. Verificar cada caminho possível de documentação
+	for _, path := range commonDocPaths {
+		log.Printf("Verificando existência da pasta %s para %s/%s...\n", path, owner, repo)
+		docsDirOpts := &github.RepositoryContentGetOptions{Ref: defaultBranch}
+		
+		// Verificamos se o diretório existe
+		_, _, _, err = c.client.Repositories.GetContents(ctx, owner, repo, path, docsDirOpts)
+		
+		if err == nil {
+			// Caminho encontrado
+			log.Printf("Pasta de documentação %s encontrada para %s/%s.\n", path, owner, repo)
+			searchInDocs = true
+			foundDocPath = path
+			break
 		} else {
-			// Handle other unexpected errors when checking /docs
-			log.Printf("Unexpected error checking /docs directory for %s/%s: %v\n", owner, repo, err)
-			// Decide if we should fallback or return error. Let's fallback for now, but log prominently.
-			log.Printf("WARN: Proceeding with repository-wide search despite non-404 error checking /docs.")
-			searchInDocs = false
-			// Alternatively, could return error: return nil, fmt.Errorf("error checking /docs directory: %w", processGitHubError(err))
+			// Verificar se o erro é 404 Not Found
+			ghErr, ok := err.(*github.ErrorResponse)
+			if ok && ghErr.Response.StatusCode == http.StatusNotFound {
+				log.Printf("Pasta %s não encontrada para %s/%s.\n", path, owner, repo)
+				// Continuamos verificando outros caminhos
+			} else {
+				// Tratamos erros inesperados
+				log.Printf("Erro inesperado verificando pasta %s para %s/%s: %v\n", path, owner, repo, err)
+			}
 		}
+	}
+	
+	if !searchInDocs {
+		log.Printf("Nenhuma pasta de documentação encontrada para %s/%s.\n", owner, repo)
 	}
 
 	// 2. Perform search based on whether /docs exists
 	if searchInDocs {
-		log.Printf("Searching for documentation files within path 'docs' in %s/%s...\n", owner, repo)
-		docPaths, err = c.searchForMarkdownFilesInPath(ctx, owner, repo, "docs")
+		log.Printf("Listando arquivos de documentação na pasta %s de %s/%s...\n", foundDocPath, owner, repo)
+		// Usar nossa função de listagem recursiva no caminho encontrado
+		docPaths, err = c.listDocFilesInPath(ctx, owner, repo, foundDocPath, defaultBranch)
 		if err != nil {
-			log.Printf("Error searching within /docs path in %s/%s: %v\n", owner, repo, err)
-			return nil, fmt.Errorf("error searching documentation files in /docs: %w", err)
+			log.Printf("Erro ao listar arquivos na pasta %s em %s/%s: %v\n", foundDocPath, owner, repo, err)
+			return nil, fmt.Errorf("erro ao listar arquivos de documentação na pasta %s: %w", foundDocPath, err)
 		}
 		if len(docPaths) == 0 {
-			log.Printf("No documentation files found within /docs path for %s/%s. Falling back to repo-wide search.\n", owner, repo)
-			// Fallback if /docs exists but search yields nothing
+			log.Printf("Nenhum arquivo de documentação encontrado na pasta %s em %s/%s.\n", foundDocPath, owner, repo)
 			searchInDocs = false
+		} else {
+			log.Printf("Encontrados %d arquivos de documentação na pasta %s de %s/%s\n", len(docPaths), foundDocPath, owner, repo)
 		}
 	}
 
-	// 3. Fallback: If /docs wasn't searched or yielded no results, search the whole repository
+	// Se não existe pasta /docs/ ou não existem arquivos nela, retornamos um erro
 	if !searchInDocs {
-		log.Printf("Performing repository-wide search for documentation files in %s/%s...\n", owner, repo)
-		docPaths, err = c.searchForMarkdownFiles(ctx, owner, repo)
-		if err != nil {
-			log.Printf("Error searching repository-wide in %s/%s: %v\n", owner, repo, err)
-			return nil, fmt.Errorf("error searching documentation files repository-wide: %w", err)
-		}
-
-		if len(docPaths) == 0 {
-			log.Printf("No documentation files found via repository-wide search for %s/%s\n", owner, repo)
-			return nil, errors.New("no documentation files found in repository via search")
-		}
-		log.Printf("Found %d potential documentation files via repository-wide search for %s/%s.\n", len(docPaths), owner, repo)
+		log.Printf("A pasta /docs/ não foi encontrada em %s/%s ou você configurou para usar apenas a pasta /docs/\n", owner, repo)
+		return nil, errors.New("a pasta /docs/ não foi encontrada no repositório ou está vazia")
 	}
 
 	// 4. Fetch content for the determined docPaths

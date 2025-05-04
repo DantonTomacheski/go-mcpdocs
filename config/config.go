@@ -15,6 +15,8 @@ type Config struct {
 	Port           string
 	WorkerPoolSize int
 	RequestTimeout time.Duration
+	MongoURI       string
+	EnableMongoDB  bool
 }
 
 // Load loads configuration from environment variables
@@ -62,10 +64,16 @@ func Load() (*Config, error) {
 		}
 	}
 
+	// Get MongoDB URI
+	mongoURI := os.Getenv("MONGO_URI")
+	enableMongoDB := mongoURI != ""
+
 	return &Config{
 		GitHubToken:    token,
 		Port:           port,
 		WorkerPoolSize: workerPoolSize,
 		RequestTimeout: timeout,
+		MongoURI:       mongoURI,
+		EnableMongoDB:  enableMongoDB,
 	}, nil
 }

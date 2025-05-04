@@ -12,7 +12,9 @@ import (
 
 	"github.com/dtomacheski/extract-data-go/api"
 	"github.com/dtomacheski/extract-data-go/config"
+	"github.com/dtomacheski/extract-data-go/internal/database"
 	"github.com/dtomacheski/extract-data-go/internal/github"
+	"github.com/dtomacheski/extract-data-go/internal/repository"
 )
 
 func main() {
@@ -28,8 +30,31 @@ func main() {
 	// Initialize GitHub client
 	githubClient := github.NewClient(cfg.GitHubToken, cfg.RequestTimeout)
 
+	// Initialize MongoDB client if enabled
+	var mongoClient *database.Client
+	if cfg.EnableMongoDB {
+		logger.Println("Initializing MongoDB connection...")
+		mongoClient, err = database.NewClient(cfg.MongoURI, logger)
+		if err != nil {
+			logger.Fatalf("Failed to connect to MongoDB: %v", err)
+		}
+		logger.Println("Successfully connected to MongoDB")
+		
+		// Ensure MongoDB client is closed on shutdown
+		defer func() {
+			if err := mongoClient.Close(context.Background()); err != nil {
+				logger.Printf("Error closing MongoDB connection: %v", err)
+			}
+		}()
+	} else {
+		logger.Println("MongoDB integration disabled - no connection string provided")
+	}
+
+	// Initialize document repository
+	docRepo := repository.NewDocumentRepository(mongoClient, logger)
+
 	// Initialize API handler
-	handler := api.NewHandler(githubClient, cfg.WorkerPoolSize)
+	handler := api.NewHandler(githubClient, docRepo, logger, cfg.WorkerPoolSize)
 
 	// Set up router
 	router := api.SetupRouter(handler)

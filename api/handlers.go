@@ -3,26 +3,32 @@ package api
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/dtomacheski/extract-data-go/internal/github"
 	"github.com/dtomacheski/extract-data-go/internal/models"
+	"github.com/dtomacheski/extract-data-go/internal/repository"
 	"github.com/gin-gonic/gin"
 )
 
 // Handler contains the handlers for the API
 type Handler struct {
-	GitHubClient *github.Client
-	WorkerPoolSize int
+	GitHubClient      *github.Client
+	WorkerPoolSize    int
+	DocumentRepository *repository.DocumentRepository
+	Logger            *log.Logger
 }
 
 // NewHandler creates a new API handler
-func NewHandler(client *github.Client, workerPoolSize int) *Handler {
+func NewHandler(client *github.Client, docRepo *repository.DocumentRepository, logger *log.Logger, workerPoolSize int) *Handler {
 	return &Handler{
-		GitHubClient: client,
-		WorkerPoolSize: workerPoolSize,
+		GitHubClient:      client,
+		WorkerPoolSize:    workerPoolSize,
+		DocumentRepository: docRepo,
+		Logger:            logger,
 	}
 }
 
@@ -111,6 +117,17 @@ func (h *Handler) GetRepositoryDocumentation(c *gin.Context) {
 			Status:  statusCode,
 		})
 		return
+	}
+
+	// Processar e armazenar documentação no MongoDB no formato TXT desejado
+	if h.DocumentRepository != nil && h.DocumentRepository.IsEnabled() {
+		h.Logger.Printf("Processing and storing documentation in TXT format for %s/%s", owner, repo)
+		if err := h.DocumentRepository.StoreDocumentation(ctx, documentationItems); err != nil {
+			h.Logger.Printf("Failed to store processed documentation in MongoDB: %v", err)
+			// Isso não é um erro crítico, ainda podemos retornar a documentação para o cliente
+		} else {
+			h.Logger.Printf("Successfully processed and stored documentation in MongoDB for %s/%s", owner, repo)
+		}
 	}
 
 	// Construct the new response using RepositoryDocsResponse
