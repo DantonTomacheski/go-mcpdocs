@@ -15,7 +15,7 @@ import (
 )
 
 // GetProcessedDocsFromURL handles fetching and processing documentation from a GitHub repository URL
-// This is an enhanced version that extracts code snippets like Context7
+// This is an enhanced version that extracts code snippets
 func (h *Handler) GetProcessedDocsFromURL(c *gin.Context) {
 	// Get repository URL from query parameters
 	repoURL := c.Query("repo")
@@ -121,9 +121,9 @@ func (h *Handler) GetProcessedDocsFromURL(c *gin.Context) {
 	// Process the documentation to extract code snippets
 	processedResponse := docProcessor.ExtractSnippets(documentation, repoInfo.FullName, repoInfo.HTMLURL)
 
-	// Format response in Context7-like style
-	if c.Query("format") == "context7" {
-		formattedString, err := formatContext7Style(processedResponse)
+	// Format response in enhanced style
+	if c.Query("format") == "enhanced" {
+		formattedString, err := formatEnhancedStyle(processedResponse)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.ErrorResponse{
 				Error:   "internal_error",
@@ -135,7 +135,7 @@ func (h *Handler) GetProcessedDocsFromURL(c *gin.Context) {
 
 		// Check if output should be saved to file for testing
 		if c.Query("output") == "file" {
-			outputFilename := "output_context7.txt"
+			outputFilename := "output_enhanced.txt"
 			err := os.WriteFile(outputFilename, []byte(formattedString), 0644)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, models.ErrorResponse{
@@ -165,8 +165,8 @@ func (h *Handler) GetProcessedDocsFromURL(c *gin.Context) {
 	})
 }
 
-// formatContext7Style formats snippets into the Context7 text format.
-func formatContext7Style(response models.DocumentationResponse) (string, error) {
+// formatEnhancedStyle formats snippets into a structured text format.
+func formatEnhancedStyle(response models.DocumentationResponse) (string, error) {
 	var sb strings.Builder
 
 	sb.WriteString("Repository: " + response.RepositoryName + "\n")

@@ -34,7 +34,7 @@ func SetupRouter(handler *Handler) *gin.Engine {
 		// Direct URL endpoint (new approach)
 		v1.GET("/docs", handler.GetDocsFromURL)
 		
-		// Enhanced documentation endpoint (Context7-like)
+		// Enhanced documentation endpoint
 		v1.GET("/snippets", handler.GetProcessedDocsFromURL)
 	}
 

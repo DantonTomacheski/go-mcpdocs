@@ -1,19 +1,19 @@
 {
   "entities": [
     {
-      "name": "DeepwikiProject",
+      "name": "go-mcpdocsProject",
       "entityType": "project",
       "observations": [
-        "Projeto Deepwiki: API de alta performance em Go para extração e fornecimento de documentação de repositórios GitHub.",
+        "Projeto go-mcpdocs: API de alta performance em Go para extração e fornecimento de documentação de repositórios GitHub.",
         "Utiliza Gin, worker pools, integração com GitHub API, configuração via ambiente e shutdown gracioso.",
         "Foco em fornecer contexto atualizado e confiável para LLMs e desenvolvedores.",
         "Possui endpoints RESTful, processadores de documentação, e mecanismos de segurança e performance em evolução.",
-        "Entidade detalhada: Representa o núcleo do sistema Deepwiki, integrando componentes técnicos, objetivos de negócio e evolução contínua.",
-        "Relaciona-se com status, planejamento e objetivos Context7 para garantir alinhamento estratégico e operacional."
+        "Entidade detalhada: Representa o núcleo do sistema go-mcpdocs, integrando componentes técnicos, objetivos de negócio e evolução contínua.",
+        "Relaciona-se com status, planejamento e objetivos do projeto para garantir alinhamento estratégico e operacional."
       ]
     },
     {
-      "name": "DeepwikiNextSteps2025",
+      "name": "go-mcpdocsNextSteps2025",
       "entityType": "next_steps_plan",
       "observations": [
         "1. Autenticação e Segurança: Implementar JWT/OAuth, rate limiting.",
@@ -27,7 +27,7 @@
         "Este plano deve ser revisado a cada ciclo de planejamento para garantir alinhamento com as necessidades dos usuários e avanços tecnológicos em LLMs.",
         "Prioridade inicial: autenticação e cache, pois são críticos para segurança e performance.",
         "O sucesso do projeto será medido pela adoção por desenvolvedores e pela redução de respostas desatualizadas/hallucinadas em LLMs.",
-        "Entidade detalhada: Plano estratégico do projeto Deepwiki para 2025, contendo prioridades, critérios de sucesso e alinhamento com objetivos Context7."
+        "Entidade detalhada: Plano estratégico do projeto go-mcpdocs para 2025, contendo prioridades, critérios de sucesso e alinhamento com objetivos do projeto."
       ]
     },
     {
@@ -35,7 +35,7 @@
       "entityType": "documentation_status",
       "observations": [
         "Arquivo de status do projeto contendo resumo do progresso, funcionalidades implementadas, etapas do fluxo do sistema e próximos passos.",
-        "Atualizado periodicamente para refletir o estado real do projeto Deepwiki/Context7.",
+        "Atualizado periodicamente para refletir o estado real do projeto go-mcpdocs.",
         "Serve como referência para onboarding, planejamento e acompanhamento de evolução do projeto.",
         "Inclui seção 'Fluxo do Sistema em 9 Etapas' para detalhar o funcionamento do backend.",
         "É o principal ponto de referência para entender rapidamente o estágio e as prioridades do projeto.",
@@ -108,7 +108,7 @@
       "entityType": "método",
       "observations": [
         "Método central da API que processa requisições para obter documentação de repositórios GitHub",
-        "Implementa a funcionalidade principal do projeto Deepwiki de extrair documentação",
+        "Implementa a funcionalidade principal do projeto go-mcpdocs de extrair documentação",
         "Utiliza cancelamento de contexto para interromper operações quando o cliente desconecta",
         "Configura o processamento paralelo com worker pools para eficiência",
         "Gerencia erros específicos relacionados à obtenção de documentação",
@@ -254,7 +254,7 @@
       "name": "database.Client",
       "entityType": "classe",
       "observations": [
-        "Cliente para operações MongoDB no projeto Deepwiki",
+        "Cliente para operações MongoDB no projeto go-mcpdocs",
         "Gerencia conexão, operações CRUD e timeout para o banco de dados",
         "Utiliza o driver oficial MongoDB para Go",
         "Mantém referências para database e collections específicas",
@@ -343,7 +343,7 @@
     {
       "from": "config.Config",
       "relationType": "configura",
-      "to": "DeepwikiProject"
+      "to": "go-mcpdocsProject"
     },
     {
       "from": "config.Load",
@@ -353,7 +353,7 @@
     {
       "from": "api.Handler",
       "relationType": "implementa",
-      "to": "DeepwikiProject"
+      "to": "go-mcpdocsProject"
     },
     {
       "from": "api.Handler",
@@ -388,7 +388,7 @@
     {
       "from": "api.Handler.GetRepositoryDocumentation",
       "relationType": "implementa_funcionalidade_principal",
-      "to": "DeepwikiProject"
+      "to": "go-mcpdocsProject"
     },
     {
       "from": "api.Handler.SearchRepositories",
@@ -403,12 +403,12 @@
     {
       "from": "api.Handler.SearchRepositories",
       "relationType": "suporta",
-      "to": "DeepwikiProject"
+      "to": "go-mcpdocsProject"
     },
     {
       "from": "github.Client",
       "relationType": "implementa_acesso_externo",
-      "to": "DeepwikiProject"
+      "to": "go-mcpdocsProject"
     },
     {
       "from": "api.Handler",
@@ -433,7 +433,7 @@
     {
       "from": "github.Client.GetRepositoryDocumentation",
       "relationType": "implementa_funcionalidade_core",
-      "to": "DeepwikiProject"
+      "to": "go-mcpdocsProject"
     },
     {
       "from": "api.Handler.GetRepositoryDocumentation",
@@ -473,12 +473,12 @@
     {
       "from": "models.RepositoryDocsResponse",
       "relationType": "estrutura_primaria",
-      "to": "DeepwikiProject"
+      "to": "go-mcpdocsProject"
     },
     {
       "from": "api.SetupRouter",
       "relationType": "configura",
-      "to": "DeepwikiProject"
+      "to": "go-mcpdocsProject"
     },
     {
       "from": "api.SetupRouter",
@@ -498,17 +498,17 @@
     {
       "from": "api.corsMiddleware",
       "relationType": "protege",
-      "to": "DeepwikiProject"
+      "to": "go-mcpdocsProject"
     },
     {
       "from": "api.timeoutMiddleware",
       "relationType": "protege",
-      "to": "DeepwikiProject"
+      "to": "go-mcpdocsProject"
     },
     {
       "from": "main.main",
       "relationType": "inicia",
-      "to": "DeepwikiProject"
+      "to": "go-mcpdocsProject"
     },
     {
       "from": "main.main",
@@ -516,24 +516,24 @@
       "to": "api.SetupRouter"
     },
     {
-      "from": "DeepwikiNextSteps2025",
+      "from": "go-mcpdocsNextSteps2025",
       "relationType": "is next steps plan for",
-      "to": "DeepwikiProject"
+      "to": "go-mcpdocsProject"
     },
     {
       "from": "aonde-estamos.md",
       "relationType": "documents status of",
-      "to": "DeepwikiProject"
+      "to": "go-mcpdocsProject"
     },
     {
       "from": "aonde-estamos.md",
       "relationType": "summarizes",
-      "to": "DeepwikiNextSteps2025"
+      "to": "go-mcpdocsNextSteps2025"
     },
     {
       "from": "aonde-estamos.md",
       "relationType": "is updated from",
-      "to": "DeepwikiProject"
+      "to": "go-mcpdocsProject"
     },
     {
       "from": "api.Handler.GetRepositoryDocumentation",

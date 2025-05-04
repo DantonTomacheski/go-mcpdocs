@@ -16,32 +16,32 @@ import (
 
 // MongoDB connection and collection constants
 const (
-	DatabaseName     = "deepwiki"
+	DatabaseName       = "go-mcpdocs"
 	DocsCollectionName = "documentation"
-	DefaultTimeout   = 10 * time.Second
+	DefaultTimeout     = 10 * time.Second
 )
 
 // DocStorage é uma versão leve da Documentation para armazenamento no DB
 type DocStorage struct {
 	RepoID        int64     `bson:"repo_id"`
 	RepoName      string    `bson:"repo_name"`
-	Filename      string    `bson:"filename"`      // Ex: llms.txt
+	Filename      string    `bson:"filename"`       // Ex: llms.txt
 	ProcessedPath string    `bson:"processed_path"` // Ex: /vercel/next.js/llms.txt
 	ContentType   string    `bson:"content_type"`
 	Size          int       `bson:"size"`
 	SnippetsCount int       `bson:"snippets_count"`
-	Content       string    `bson:"content"`       // Conteúdo processado em formato TXT
+	Content       string    `bson:"content"` // Conteúdo processado em formato TXT
 	CreatedAt     time.Time `bson:"created_at"`
 	UpdatedAt     time.Time `bson:"updated_at"`
 }
 
 // Client handles MongoDB operations
 type Client struct {
-	client     *mongo.Client
-	database   *mongo.Database
-	docs       *mongo.Collection
-	timeout    time.Duration
-	logger     *log.Logger
+	client   *mongo.Client
+	database *mongo.Database
+	docs     *mongo.Collection
+	timeout  time.Duration
+	logger   *log.Logger
 }
 
 // NewClient creates a new MongoDB client
@@ -163,7 +163,7 @@ func (c *Client) UpdateDocumentation(ctx context.Context, doc *DocStorage) error
 
 	filter := bson.D{{Key: "processed_path", Value: doc.ProcessedPath}}
 	doc.UpdatedAt = time.Now()
-	
+
 	update := bson.D{{Key: "$set", Value: doc}}
 	_, err := c.docs.UpdateOne(ctx, filter, update)
 	return err

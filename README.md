@@ -1,21 +1,26 @@
-# GitHub Documentation API
+# go-mcpdocs - Documentation API
 
-A high-performance API written in Go that fetches and processes GitHub repository documentation with proper error handling and concurrency.
+A high-performance API written in Go that extracts, processes and provides documentation from GitHub repositories with proper error handling, concurrency, and storage capabilities. This API is designed to serve as a reliable source of up-to-date documentation for LLMs and developers.
 
 ## Features
 
-- Fetch repository information from GitHub
-- Extract documentation files (README, docs directory, etc.) from repositories
+- Fetch comprehensive repository information from GitHub
+- Extract and process documentation files (README, docs directory, etc.) from repositories
 - Search for repositories with documentation
-- Concurrent processing of documentation files
-- Proper error handling with detailed error responses
-- Graceful shutdown
+- Process and format documentation for better consumption by LLMs
+- Store processed documentation in MongoDB for faster retrieval
+- Retrieve documentation directly from URL paths
+- Concurrent processing with configurable worker pools
+- Enhanced error handling with detailed error responses
+- Graceful shutdown with proper resource cleanup
+- CORS protection and request timeout middleware
 - Configurable worker pool size and request timeouts
 
 ## Prerequisites
 
 - Go 1.16 or higher
 - GitHub Personal Access Token
+- MongoDB (optional, for document storage)
 
 ## Installation
 
@@ -32,13 +37,15 @@ cd extract-data-go
 cp .env.example .env
 ```
 
-3. Edit the `.env` file and add your GitHub Personal Access Token:
+3. Edit the `.env` file and add your GitHub Personal Access Token and MongoDB connection string (if using document storage):
 
 ```
 GITHUB_TOKEN=your_github_token_here
 PORT=8080
 WORKER_POOL_SIZE=5
 REQUEST_TIMEOUT=30s
+MONGODB_URI=mongodb://localhost:27017
+MONGODB_DATABASE=go-mcpdocs
 ```
 
 ## How to Run
@@ -87,9 +94,29 @@ Example: `GET /api/v1/repos/google/go-github`
 GET /api/v1/repos/:owner/:repo/docs
 ```
 
-Fetches documentation files from a GitHub repository.
+Fetches documentation files from a GitHub repository. Documentation is automatically processed and stored in MongoDB if configured.
 
 Example: `GET /api/v1/repos/google/go-github/docs`
+
+### Get Documentation from URL
+
+```
+GET /api/v1/docs?url=:url
+```
+
+Fetches documentation directly from a GitHub repository URL.
+
+Example: `GET /api/v1/docs?url=https://github.com/google/go-github`
+
+### Get Processed Documentation Snippets
+
+```
+GET /api/v1/snippets?url=:url
+```
+
+Retrieves enhanced, processed documentation snippets from a GitHub repository URL in a format optimized for LLMs.
+
+Example: `GET /api/v1/snippets?url=https://github.com/google/go-github`
 
 ### Search Repositories
 
@@ -114,6 +141,8 @@ The application can be configured using environment variables:
 - `PORT`: The port on which the API server will listen (default: 8080)
 - `WORKER_POOL_SIZE`: Number of concurrent workers for processing documentation (default: 5)
 - `REQUEST_TIMEOUT`: Timeout for GitHub API requests (default: 30s)
+- `MONGODB_URI`: MongoDB connection string (optional, for document storage)
+- `MONGODB_DATABASE`: MongoDB database name (optional, default: go-mcpdocs)
 
 ## Error Handling
 
@@ -155,3 +184,18 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 - [Google's go-github](https://github.com/google/go-github) - GitHub API client for Go
 - [Gin Web Framework](https://github.com/gin-gonic/gin) - HTTP web framework for Go
+- [MongoDB Go Driver](https://pkg.go.dev/go.mongodb.org/mongo-driver) - Official MongoDB driver for Go
+
+## Project Status and Roadmap
+
+This project is part of the go-mcpdocs initiative to provide high-quality, up-to-date documentation to LLMs and developers. See the `aonde-estamos.md` file for current project status details.
+
+Planned enhancements for 2025 include:
+
+1. Authentication and Security (JWT/OAuth, rate limiting)
+2. Cache and Performance optimizations
+3. Enhanced document processors for multiple formats
+4. Additional API endpoints and OpenAPI documentation
+5. Improved observability with structured logging and metrics
+6. Enhanced user experience
+7. Multi-region deployment and asynchronous processing
