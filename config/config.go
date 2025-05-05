@@ -17,6 +17,9 @@ type Config struct {
 	RequestTimeout time.Duration
 	MongoURI       string
 	EnableMongoDB  bool
+	RedisURI       string
+	EnableCache    bool
+	CacheTTL       time.Duration
 }
 
 // Load loads configuration from environment variables
@@ -68,6 +71,24 @@ func Load() (*Config, error) {
 	mongoURI := os.Getenv("MONGO_URI")
 	enableMongoDB := mongoURI != ""
 
+	// Get Redis URI
+	redisURI := os.Getenv("REDIS_URI")
+	enableCache := redisURI != ""
+
+	// Get cache TTL
+	cacheTTLStr := os.Getenv("CACHE_TTL")
+	cacheTTL := 1 * time.Hour // Default value
+	if cacheTTLStr != "" {
+		var err error
+		cacheTTL, err = time.ParseDuration(cacheTTLStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid CACHE_TTL: %v", err)
+		}
+		if cacheTTL <= 0 {
+			cacheTTL = 1 * time.Hour // Ensure a positive value
+		}
+	}
+
 	return &Config{
 		GitHubToken:    token,
 		Port:           port,
@@ -75,5 +96,8 @@ func Load() (*Config, error) {
 		RequestTimeout: timeout,
 		MongoURI:       mongoURI,
 		EnableMongoDB:  enableMongoDB,
+		RedisURI:       redisURI,
+		EnableCache:    enableCache,
+		CacheTTL:       cacheTTL,
 	}, nil
 }

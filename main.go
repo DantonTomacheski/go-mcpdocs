@@ -12,6 +12,7 @@ import (
 
 	"github.com/dtomacheski/extract-data-go/api"
 	"github.com/dtomacheski/extract-data-go/config"
+	"github.com/dtomacheski/extract-data-go/internal/cache"
 	"github.com/dtomacheski/extract-data-go/internal/database"
 	"github.com/dtomacheski/extract-data-go/internal/github"
 	"github.com/dtomacheski/extract-data-go/internal/repository"
@@ -53,8 +54,39 @@ func main() {
 	// Initialize document repository
 	docRepo := repository.NewDocumentRepository(mongoClient, logger)
 
+	// Initialize Redis cache if enabled
+	var cacheClient cache.Cache
+	if cfg.EnableCache {
+		logger.Println("Initializing Redis cache connection...")
+		redisClient, err := cache.NewRedisClient(cache.RedisConfig{
+			RedisURI:   cfg.RedisURI,
+			Enabled:    true,
+			DefaultTTL: cfg.CacheTTL,
+			Logger:     logger,
+		})
+		if err != nil {
+			logger.Printf("Warning: Failed to connect to Redis: %v. Continuing without cache.", err)
+			// Create a disabled cache client to avoid nil checks
+			cacheClient = &cache.RedisClient{}
+		} else {
+			logger.Println("Successfully connected to Redis cache")
+			cacheClient = redisClient
+			
+			// Ensure Redis client is closed on shutdown
+			defer func() {
+				if err := redisClient.Close(); err != nil {
+					logger.Printf("Error closing Redis connection: %v", err)
+				}
+			}()
+		}
+	} else {
+		logger.Println("Redis cache integration disabled - no connection string provided")
+		// Create a disabled cache client to avoid nil checks
+		cacheClient = &cache.RedisClient{}
+	}
+
 	// Initialize API handler
-	handler := api.NewHandler(githubClient, docRepo, logger, cfg.WorkerPoolSize)
+	handler := api.NewHandler(githubClient, docRepo, cacheClient, logger, cfg.WorkerPoolSize)
 
 	// Set up router
 	router := api.SetupRouter(handler)

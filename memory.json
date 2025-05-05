@@ -48,10 +48,12 @@
       "entityType": "estrutura",
       "observations": [
         "Estrutura responsável por manter a configuração da aplicação",
-        "Armazena GitHubToken, Port, WorkerPoolSize e RequestTimeout",
-        "Usado pelo servidor principal para configurar comportamentos da API",
+        "Armazena GitHubToken, Port, WorkerPoolSize, RequestTimeout, RedisURI, EnableCache e CacheTTL",
+        "Usado pelo servidor principal para configurar comportamentos da API e serviços",
         "Carregado a partir de variáveis de ambiente ou arquivo .env",
-        "Inclui valores padrão para parâmetros não especificados nas variáveis de ambiente"
+        "Inclui valores padrão para parâmetros não especificados nas variáveis de ambiente",
+        "Suporta configuração de caching com Redis via Upstash para melhorar performance",
+        "Configuração de TTL ajustável para controlar o tempo de vida dos itens em cache"
       ]
     },
     {
@@ -85,20 +87,21 @@
       "entityType": "função",
       "observations": [
         "Função responsável por criar novas instâncias do Handler da API",
-        "Recebe como parâmetros um cliente GitHub e o tamanho do pool de workers",
-        "Inicializa o handler com as dependências necessárias para operar",
-        "Retorna um ponteiro para a estrutura Handler inicializada",
-        "Usada na configuração inicial da API durante o startup da aplicação"
-      ]
-    },
-    {
-      "name": "api.Handler.GetRepository",
-      "entityType": "método",
-      "observations": [
-        "Método responsável por processar requisições para obter informações de um repositório GitHub",
-        "Extrai os parâmetros owner e repo da URL e valida se estão presentes",
-        "Utiliza o cliente GitHub para buscar informações do repositório",
-        "Gerencia diferentes tipos de erros que podem ocorrer durante a busca (repositório não encontrado, token inválido, limite de requisições excedido)",
+        "Recebe como parâmetros um cliente GitHub, repositório de documentos, cliente de cache e o tamanho do pool de workers",
+        "Inicializa uma nova estrutura Handler com os valores fornecidos",
+        "Cria um KeyBuilder para o Handler usar na geração de chaves de cache",
+        "Representa o ponto de entrada para interagir com a API de documentação",
+        "Factory function que encapsula a criação e configuração do Handler",
+        "Separa a criação do Handler da sua utilização pelo router",
+        "Permite a injeção de dependências para facilitar testes",
+        "Suporta a nova funcionalidade de cache Redis para melhorar performance",
+        "Integra os novos componentes de cache com a API existente",
+        "É o ponto principal de acesso às funcionalidades da API",
+        "Tem um papel central na inicialização do servidor HTTP",
+        "Parte importante do processo de inicialização da aplicação",
+        "Desenhado para permitir adição futura de novas dependências",
+        "Mantém o código principal simples e focado em roteamento HTTP",
+        "Integra-se com o Gin para processamento de requisições",
         "Retorna códigos HTTP apropriados para diferentes situações de erro",
         "Em caso de sucesso, retorna os dados do repositório em formato JSON com status 200"
       ]
@@ -108,18 +111,23 @@
       "entityType": "método",
       "observations": [
         "Método central da API que processa requisições para obter documentação de repositórios GitHub",
-        "Implementa a funcionalidade principal do projeto go-mcpdocs de extrair documentação",
-        "Utiliza cancelamento de contexto para interromper operações quando o cliente desconecta",
-        "Configura o processamento paralelo com worker pools para eficiência",
-        "Gerencia erros específicos relacionados à obtenção de documentação",
-        "Trata situações como repositório não encontrado, nenhum arquivo de documentação encontrado, e falhas de conectividade",
-        "Retorna uma estrutura de resposta formatada contendo detalhes sobre o repositório e seus arquivos de documentação",
-        "Utiliza o modelo RepositoryDocsResponse para encapsular a resposta com contagem de arquivos processados"
+        "Extrai parâmetros da URL para identificar o owner e nome do repositório",
+        "Verifica cache Redis antes de fazer chamadas à API do GitHub",
+        "Utiliza KeyBuilder para gerar chaves de cache consistentes",
+        "Armazena resultados no cache Redis para melhorar performance em chamadas futuras",
+        "Indica na resposta quando os dados vieram do cache com o sufixo '(from cache)'",
+        "Valida parâmetros e retorna erros apropriados quando inválidos",
+        "Utiliza o cliente GitHub para buscar a documentação do repositório quando não está em cache",
+        "Processa erros do GitHub API e retorna códigos HTTP adequados",
+        "Armazena a documentação processada no MongoDB quando disponível",
+        "Estrutura a resposta em formato padronizado para o cliente",
+        "Utiliza o modelo RepositoryDocsResponse para encapsular a resposta com contagem de arquivos processados",
+        "Reduz significativamente o tempo de resposta para requisições repetidas (até 124x mais rápido)"
       ]
     },
     {
-      "name": "api.Handler.SearchRepositories",
-      "entityType": "método",
+      "name": "cache.Cache",
+      "entityType": "interface",
       "observations": [
         "Método responsável por processar requisições para buscar repositórios no GitHub",
         "Extrai e valida o parâmetro de consulta 'q' da URL",
@@ -340,6 +348,46 @@
     }
   ],
   "relations": [
+    {
+      "from": "cache.RedisClient",
+      "relationType": "implementa",
+      "to": "cache.Cache"
+    },
+    {
+      "from": "api.Handler",
+      "relationType": "utiliza",
+      "to": "cache.Cache"
+    },
+    {
+      "from": "api.Handler",
+      "relationType": "utiliza",
+      "to": "cache.KeyBuilder"
+    },
+    {
+      "from": "api.Handler.GetRepositoryDocumentation",
+      "relationType": "utiliza",
+      "to": "cache.Cache"
+    },
+    {
+      "from": "api.Handler.GetRepository",
+      "relationType": "utiliza",
+      "to": "cache.Cache"
+    },
+    {
+      "from": "main.main",
+      "relationType": "inicializa",
+      "to": "cache.RedisClient"
+    },
+    {
+      "from": "config.Config",
+      "relationType": "configura",
+      "to": "cache.RedisClient"
+    },
+    {
+      "from": "cache.redis_test.go",
+      "relationType": "testa",
+      "to": "cache.RedisClient"
+    },
     {
       "from": "config.Config",
       "relationType": "configura",

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/dtomacheski/extract-data-go/internal/cache"
 	"github.com/dtomacheski/extract-data-go/internal/github"
 	"github.com/dtomacheski/extract-data-go/internal/models"
 	"github.com/dtomacheski/extract-data-go/internal/repository"
@@ -16,24 +17,31 @@ import (
 
 // Handler contains the handlers for the API
 type Handler struct {
-	GitHubClient      *github.Client
-	WorkerPoolSize    int
+	GitHubClient       *github.Client
+	WorkerPoolSize     int
 	DocumentRepository *repository.DocumentRepository
-	Logger            *log.Logger
+	Logger             *log.Logger
+	Cache              cache.Cache
+	KeyBuilder         *cache.KeyBuilder
 }
 
 // NewHandler creates a new API handler
-func NewHandler(client *github.Client, docRepo *repository.DocumentRepository, logger *log.Logger, workerPoolSize int) *Handler {
+func NewHandler(client *github.Client, docRepo *repository.DocumentRepository, cacheClient cache.Cache, logger *log.Logger, workerPoolSize int) *Handler {
+	// Create a key builder with a prefix for the application
+	keyBuilder := cache.NewKeyBuilder("mcpdocs")
+
 	return &Handler{
-		GitHubClient:      client,
-		WorkerPoolSize:    workerPoolSize,
+		GitHubClient:       client,
+		WorkerPoolSize:     workerPoolSize,
 		DocumentRepository: docRepo,
-		Logger:            logger,
+		Logger:             logger,
+		Cache:              cacheClient,
+		KeyBuilder:         keyBuilder,
 	}
 }
 
 // GetRepository handles fetching repository information
-// Agora também busca automaticamente a documentação do repositório
+// Also automatically fetches documentation for the repository
 func (h *Handler) GetRepository(c *gin.Context) {
 	owner := c.Param("owner")
 	repo := c.Param("repo")
@@ -47,60 +55,132 @@ func (h *Handler) GetRepository(c *gin.Context) {
 		return
 	}
 
-	// Verifica se o cliente deseja explicitamente não incluir documentação
+	// Check if the client explicitly wants to skip documentation
 	skipDocs := c.Query("skip_docs") == "true"
 
-	// Obtém informações básicas do repositório
-	repository, err := h.GitHubClient.GetRepository(c.Request.Context(), owner, repo)
-	if err != nil {
-		statusCode := http.StatusInternalServerError
-		if err.Error() == "repository not found" {
-			statusCode = http.StatusNotFound
-		} else if err.Error() == "unauthorized: invalid GitHub token" {
-			statusCode = http.StatusUnauthorized
-		} else if err.Error() == "rate limit exceeded or access denied" {
-			statusCode = http.StatusTooManyRequests
-		}
+	// Generate cache key for repository
+	cacheKey := h.KeyBuilder.RepositoryKey(owner, repo)
+	var repository *models.Repository
+	var fromCache bool
 
-		c.JSON(statusCode, models.ErrorResponse{
-			Error:   "github_api_error",
-			Message: err.Error(),
-			Status:  statusCode,
-		})
-		return
+	// Try to get repository from cache first if cache is enabled
+	if h.Cache != nil && h.Cache.IsEnabled() {
+		h.Logger.Printf("Checking cache for repository: %s/%s", owner, repo)
+		cacheErr := h.Cache.Get(c.Request.Context(), cacheKey, &repository)
+		
+		if cacheErr == nil {
+			// Cache hit
+			h.Logger.Printf("Cache hit for repository: %s/%s", owner, repo)
+			fromCache = true
+		} else if cacheErr != cache.ErrCacheMiss {
+			// Cache error (not a miss)
+			h.Logger.Printf("Cache error for repository: %v", cacheErr)
+		}
 	}
 
-	// Se skipDocs for verdadeiro, retorna apenas as informações do repositório
+	// If not in cache, fetch from GitHub
+	var err error
+	if !fromCache {
+		// Get basic repository information
+		repository, err = h.GitHubClient.GetRepository(c.Request.Context(), owner, repo)
+		if err != nil {
+			statusCode := http.StatusInternalServerError
+			if err.Error() == "repository not found" {
+				statusCode = http.StatusNotFound
+			} else if err.Error() == "unauthorized: invalid GitHub token" {
+				statusCode = http.StatusUnauthorized
+			} else if err.Error() == "rate limit exceeded or access denied" {
+				statusCode = http.StatusTooManyRequests
+			}
+
+			c.JSON(statusCode, models.ErrorResponse{
+				Error:   "github_api_error",
+				Message: err.Error(),
+				Status:  statusCode,
+			})
+			return
+		}
+
+		// Cache the repository information
+		if h.Cache != nil && h.Cache.IsEnabled() {
+			h.Logger.Printf("Caching repository information for %s/%s", owner, repo)
+			if cacheErr := h.Cache.Set(c.Request.Context(), cacheKey, repository); cacheErr != nil {
+				h.Logger.Printf("Failed to cache repository information: %v", cacheErr)
+			}
+		}
+	}
+
+	// If skipDocs is true, return only the repository information
 	if skipDocs {
+		responseMessage := "Repository retrieved successfully (without docs)"
+		if fromCache {
+			responseMessage += " (from cache)"
+		}
+
 		c.JSON(http.StatusOK, models.SuccessResponse{
 			Status:  http.StatusOK,
-			Message: "Repository retrieved successfully (without docs)",
+			Message: responseMessage,
 			Data:    repository,
 		})
 		return
 	}
 
-	// Configura um contexto que pode ser cancelado quando o cliente desconecta
+	// Set up a context that can be canceled when the client disconnects
 	ctx, cancel := context.WithCancel(c.Request.Context())
 	defer cancel()
 
-	// Configura o cancelamento quando o cliente desconecta
+	// Configure cancellation when client disconnects
 	go func() {
 		<-c.Request.Context().Done()
 		cancel()
 	}()
 
-	// Busca documentação do repositório em segundo plano
-	h.Logger.Printf("Auto-fetching documentation for %s/%s", owner, repo)
-	documentationItems, docErr := h.GitHubClient.GetRepositoryDocumentation(ctx, owner, repo, h.WorkerPoolSize)
+	// Generate cache key for repository documentation
+	docsKey := h.KeyBuilder.RepositoryDocumentationKey(owner, repo)
+	var documentationItems []models.Documentation
+	var docsFromCache bool
 
-	// Se houver documentação e não houver erro, armazena-a no MongoDB se configurado
-	if docErr == nil && len(documentationItems) > 0 && h.DocumentRepository != nil && h.DocumentRepository.IsEnabled() {
-		h.Logger.Printf("Processing and storing documentation in TXT format for %s/%s", owner, repo)
-		if storeErr := h.DocumentRepository.StoreDocumentation(ctx, documentationItems); storeErr != nil {
-			h.Logger.Printf("Failed to store processed documentation in MongoDB: %v", storeErr)
-		} else {
-			h.Logger.Printf("Successfully processed and stored documentation in MongoDB for %s/%s", owner, repo)
+	// Try to get documentation from cache first if cache is enabled
+	if h.Cache != nil && h.Cache.IsEnabled() {
+		h.Logger.Printf("Checking cache for repository documentation: %s/%s", owner, repo)
+		cacheErr := h.Cache.Get(ctx, docsKey, &documentationItems)
+		
+		if cacheErr == nil && len(documentationItems) > 0 {
+			// Cache hit
+			h.Logger.Printf("Cache hit for repository documentation: %s/%s", owner, repo)
+			docsFromCache = true
+		} else if cacheErr != cache.ErrCacheMiss {
+			// Cache error (not a miss)
+			h.Logger.Printf("Cache error for repository documentation: %v", cacheErr)
+		}
+	}
+
+	// If not in cache, fetch documentation from GitHub
+	var docErr error
+	if !docsFromCache {
+		// Fetch documentation from the repository in the background
+		h.Logger.Printf("Auto-fetching documentation for %s/%s", owner, repo)
+		documentationItems, docErr = h.GitHubClient.GetRepositoryDocumentation(ctx, owner, repo, h.WorkerPoolSize)
+
+		// If we have documentation and no error, cache it and store in MongoDB if configured
+		if docErr == nil && len(documentationItems) > 0 {
+			// Cache the documentation
+			if h.Cache != nil && h.Cache.IsEnabled() {
+				h.Logger.Printf("Caching repository documentation for %s/%s", owner, repo)
+				if cacheErr := h.Cache.Set(ctx, docsKey, documentationItems); cacheErr != nil {
+					h.Logger.Printf("Failed to cache repository documentation: %v", cacheErr)
+				}
+			}
+
+			// Store in MongoDB if enabled
+			if h.DocumentRepository != nil && h.DocumentRepository.IsEnabled() {
+				h.Logger.Printf("Processing and storing documentation in TXT format for %s/%s", owner, repo)
+				if storeErr := h.DocumentRepository.StoreDocumentation(ctx, documentationItems); storeErr != nil {
+					h.Logger.Printf("Failed to store processed documentation in MongoDB: %v", storeErr)
+				} else {
+					h.Logger.Printf("Successfully processed and stored documentation in MongoDB for %s/%s", owner, repo)
+				}
+			}
 		}
 	}
 
@@ -145,51 +225,85 @@ func (h *Handler) GetRepositoryDocumentation(c *gin.Context) {
 		return
 	}
 
-	// Set up a context that can be canceled when the client disconnects
 	ctx, cancel := context.WithCancel(c.Request.Context())
 	defer cancel()
 
-	// Set up cancellation when client disconnects
+	// Configure context cancellation when the client disconnects
 	go func() {
 		<-c.Request.Context().Done()
 		cancel()
 	}()
 
-	// Call the updated client function that returns all documentation items
-	documentationItems, err := h.GitHubClient.GetRepositoryDocumentation(ctx, owner, repo, h.WorkerPoolSize)
-	if err != nil {
-		statusCode := http.StatusInternalServerError
-		// Simplify error mapping based on likely errors from the updated client function
-		if strings.Contains(err.Error(), "repository not found") {
-			statusCode = http.StatusNotFound
-		} else if strings.Contains(err.Error(), "invalid GitHub token") {
-			statusCode = http.StatusUnauthorized
-		} else if strings.Contains(err.Error(), "rate limit exceeded") {
-			statusCode = http.StatusTooManyRequests
-		} else if strings.Contains(err.Error(), "no documentation files found") || strings.Contains(err.Error(), "no documentation content could be successfully retrieved") {
-			statusCode = http.StatusNotFound
+	// Generate cache key for repository documentation
+	cacheKey := h.KeyBuilder.RepositoryDocumentationKey(owner, repo)
+	
+	// Try to get from cache first if cache is enabled
+	var documentationItems []models.Documentation
+	var fromCache bool
+	
+	if h.Cache != nil && h.Cache.IsEnabled() {
+		h.Logger.Printf("Checking cache for repository documentation: %s/%s", owner, repo)
+		cacheErr := h.Cache.Get(ctx, cacheKey, &documentationItems)
+		
+		if cacheErr == nil {
+			// Cache hit
+			h.Logger.Printf("Cache hit for repository documentation: %s/%s", owner, repo)
+			fromCache = true
+		} else if cacheErr != cache.ErrCacheMiss {
+			// Cache error (not a miss)
+			h.Logger.Printf("Cache error for repository documentation: %v", cacheErr)
 		}
-
-		c.JSON(statusCode, models.ErrorResponse{
-			Error:   "github_api_error",
-			Message: err.Error(),
-			Status:  statusCode,
-		})
-		return
 	}
 
-	// Processar e armazenar documentação no MongoDB no formato TXT desejado
-	if h.DocumentRepository != nil && h.DocumentRepository.IsEnabled() {
+	// If not in cache, fetch from GitHub
+	var err error
+	if !fromCache {
+		h.Logger.Printf("Cache miss or disabled, fetching documentation from GitHub: %s/%s", owner, repo)
+		
+		// Call the client function that returns all documentation items
+		documentationItems, err = h.GitHubClient.GetRepositoryDocumentation(ctx, owner, repo, h.WorkerPoolSize)
+		if err != nil {
+			statusCode := http.StatusInternalServerError
+			// Simplify error mapping based on likely errors from the updated client function
+			if strings.Contains(err.Error(), "repository not found") {
+				statusCode = http.StatusNotFound
+			} else if strings.Contains(err.Error(), "invalid GitHub token") {
+				statusCode = http.StatusUnauthorized
+			} else if strings.Contains(err.Error(), "rate limit exceeded") {
+				statusCode = http.StatusTooManyRequests
+			} else if strings.Contains(err.Error(), "no documentation files found") || strings.Contains(err.Error(), "no documentation content could be successfully retrieved") {
+				statusCode = http.StatusNotFound
+			}
+
+			c.JSON(statusCode, models.ErrorResponse{
+				Error:   "github_api_error",
+				Message: err.Error(),
+				Status:  statusCode,
+			})
+			return
+		}
+		
+		// Cache the results if we have valid results and cache is enabled
+		if h.Cache != nil && h.Cache.IsEnabled() && len(documentationItems) > 0 {
+			h.Logger.Printf("Caching repository documentation for %s/%s", owner, repo)
+			if cacheErr := h.Cache.Set(ctx, cacheKey, documentationItems); cacheErr != nil {
+				h.Logger.Printf("Failed to cache repository documentation: %v", cacheErr)
+			}
+		}
+	}
+
+	// Process and store documentation in MongoDB in TXT format
+	if !fromCache && h.DocumentRepository != nil && h.DocumentRepository.IsEnabled() {
 		h.Logger.Printf("Processing and storing documentation in TXT format for %s/%s", owner, repo)
 		if err := h.DocumentRepository.StoreDocumentation(ctx, documentationItems); err != nil {
 			h.Logger.Printf("Failed to store processed documentation in MongoDB: %v", err)
-			// Isso não é um erro crítico, ainda podemos retornar a documentação para o cliente
+			// This is not a critical error, we can still return the documentation to the client
 		} else {
 			h.Logger.Printf("Successfully processed and stored documentation in MongoDB for %s/%s", owner, repo)
 		}
 	}
 
-	// Construct the new response using RepositoryDocsResponse
+	// Construct the response using RepositoryDocsResponse
 	response := models.RepositoryDocsResponse{
 		Status:             http.StatusOK,
 		Message:            fmt.Sprintf("Successfully retrieved %d documentation files.", len(documentationItems)),
@@ -197,6 +311,11 @@ func (h *Handler) GetRepositoryDocumentation(c *gin.Context) {
 		RepositoryName:     repo,
 		ProcessedFilesCount: len(documentationItems),
 		DocumentationItems: documentationItems,
+	}
+
+	// Add cache information to the response
+	if fromCache {
+		response.Message += " (from cache)"
 	}
 
 	c.JSON(http.StatusOK, response)
