@@ -2,6 +2,9 @@ package cache
 
 import (
 	"context"
+	"fmt"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -46,14 +49,29 @@ func (kb *KeyBuilder) RepositoryKey(owner, repo string) string {
 	return kb.Prefix + ":repo:" + owner + ":" + repo
 }
 
-// RepositoryDocumentationKey builds a cache key for repository documentation
-func (kb *KeyBuilder) RepositoryDocumentationKey(owner, repo string) string {
-	return kb.Prefix + ":docs:" + owner + ":" + repo
+// RepositoryDocumentationKey generates a unique cache key for repository documentation, including an optional ref (tag/branch).
+func (kb *KeyBuilder) RepositoryDocumentationKey(owner, repo, ref string) string {
+	// If ref is empty, we might cache it under a general key or a specific 'default' key.
+	// For simplicity, include the ref directly. Empty ref means default branch was likely intended.
+	return fmt.Sprintf("%s:repo_docs:%s:%s:%s", kb.Prefix, owner, repo, ref)
+}
+
+// RepositoryDocumentationMetadataKey generates a unique cache key for repository documentation metadata index.
+func (kb *KeyBuilder) RepositoryDocumentationMetadataKey(owner, repo, ref string) string {
+	return fmt.Sprintf("%s:doc_metadata:%s:%s:%s", kb.Prefix, owner, repo, ref)
+}
+
+// DocumentContentKey generates a unique cache key for an individual document content.
+func (kb *KeyBuilder) DocumentContentKey(owner, repo, ref string, pathHash string) string {
+	return fmt.Sprintf("%s:doc_content:%s:%s:%s:%s", kb.Prefix, owner, repo, ref, pathHash)
 }
 
 // SearchKey builds a cache key for repository search results
 func (kb *KeyBuilder) SearchKey(query string, page, perPage int) string {
-	return kb.Prefix + ":search:" + query + ":" + string(page) + ":" + string(perPage)
+	// Sanitize query slightly for key usage
+	query = strings.ReplaceAll(query, " ", "_")
+	query = strings.ToLower(query)
+	return fmt.Sprintf("%s:search:%s:page%s:per%s", kb.Prefix, query, strconv.Itoa(page), strconv.Itoa(perPage))
 }
 
 // CustomKey builds a custom cache key with the given parts

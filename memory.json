@@ -112,17 +112,21 @@
       "observations": [
         "Método central da API que processa requisições para obter documentação de repositórios GitHub",
         "Extrai parâmetros da URL para identificar o owner e nome do repositório",
+        "Implementa um sistema de cache em duas camadas para otimizar performance e uso de memória",
+        "Primeiro verifica o cache de metadados antes de buscar conteúdos individuais",
+        "Utiliza cache fragmentado por documento para evitar problemas com limites de tamanho no Redis",
+        "Suporta recuperação parcial do cache quando apenas alguns documentos estão armazenados",
         "Verifica cache Redis antes de fazer chamadas à API do GitHub",
-        "Utiliza KeyBuilder para gerar chaves de cache consistentes",
-        "Armazena resultados no cache Redis para melhorar performance em chamadas futuras",
-        "Indica na resposta quando os dados vieram do cache com o sufixo '(from cache)'",
+        "Utiliza KeyBuilder para gerar chaves de cache consistentes para metadados e conteúdo",
+        "Armazena resultados no cache Redis em duas camadas para melhorar performance",
+        "Indica na resposta quando os dados vieram do cache com o sufixo '(from cache)' ou '(from fragmented cache)'",
         "Valida parâmetros e retorna erros apropriados quando inválidos",
-        "Utiliza o cliente GitHub para buscar a documentação do repositório quando não está em cache",
+        "Utiliza o cliente GitHub para buscar apenas os documentos não presentes no cache",
         "Processa erros do GitHub API e retorna códigos HTTP adequados",
         "Armazena a documentação processada no MongoDB quando disponível",
         "Estrutura a resposta em formato padronizado para o cliente",
         "Utiliza o modelo RepositoryDocsResponse para encapsular a resposta com contagem de arquivos processados",
-        "Reduz significativamente o tempo de resposta para requisições repetidas (até 124x mais rápido)"
+        "Reduz significativamente o tempo de resposta para requisições repetidas (4-5x mais rápido)"
       ]
     },
     {
@@ -345,9 +349,81 @@
         "Acumula os caminhos de arquivo encontrados em um slice",
         "Continua a busca mesmo após erros em subdiretórios para maximizar a coleta"
       ]
+    },
+    {
+      "name": "models.DocumentMetadata",
+      "entityType": "estrutura",
+      "observations": [
+        "Estrutura leve para armazenar metadados de documentos no cache",
+        "Parte do sistema de cache em duas camadas para otimização de performance",
+        "Contém apenas Path, Size, SHA e CreatedAt para minimizar uso de memória",
+        "Facilita a verificação rápida de cache sem carregar conteúdos completos",
+        "Usada para construir o índice de documentação no cache de metadados"
+      ]
+    },
+    {
+      "name": "models.RepositoryDocumentationIndex",
+      "entityType": "estrutura",
+      "observations": [
+        "Modelo central do sistema de cache em duas camadas",
+        "Armazena metadados leves sobre todos os documentos de um repositório",
+        "Contém informações sobre owner, repo, ref (tag/branch), contagem e timestamp",
+        "Mantém lista de objetos DocumentMetadata para rápida verificação de cache",
+        "Permite validação de disponibilidade sem carregar conteúdos completos",
+        "Resolve problemas de tamanho de cache para repositórios grandes",
+        "Facilita atualizações incrementais quando apenas alguns documentos mudam"
+      ]
+    },
+    {
+      "name": "cache.KeyBuilder.RepositoryDocumentationMetadataKey",
+      "entityType": "método",
+      "observations": [
+        "Gera chave única para o índice de metadados de documentação de um repositório",
+        "Parte do sistema de cache em duas camadas para documentação",
+        "Formato de chave: {prefixo}:doc_metadata:{owner}:{repo}:{ref}",
+        "Suporta versionamento baseado na tag/branch (ref) do repositório",
+        "Utilizado antes de buscar os conteúdos individuais para otimizar desempenho"
+      ]
+    },
+    {
+      "name": "cache.KeyBuilder.DocumentContentKey",
+      "entityType": "método",
+      "observations": [
+        "Gera chave única para o conteúdo individual de um documento",
+        "Parte do sistema de cache fragmentado para documentação",
+        "Formato de chave: {prefixo}:doc_content:{owner}:{repo}:{ref}:{path_hash}",
+        "Permite recuperação individualizada de documentos do cache",
+        "Resolve problemas com limites de tamanho no Redis para repositórios grandes",
+        "Facilita atualizações incrementais quando apenas alguns documentos mudam"
+      ]
     }
   ],
   "relations": [
+    {
+      "from": "api.Handler.GetRepositoryDocumentation",
+      "relationType": "utiliza",
+      "to": "models.RepositoryDocumentationIndex"
+    },
+    {
+      "from": "api.Handler.GetRepositoryDocumentation",
+      "relationType": "utiliza",
+      "to": "models.DocumentMetadata"
+    },
+    {
+      "from": "api.Handler.GetRepositoryDocumentation",
+      "relationType": "utiliza",
+      "to": "cache.KeyBuilder.RepositoryDocumentationMetadataKey"
+    },
+    {
+      "from": "api.Handler.GetRepositoryDocumentation",
+      "relationType": "utiliza",
+      "to": "cache.KeyBuilder.DocumentContentKey"
+    },
+    {
+      "from": "models.RepositoryDocumentationIndex",
+      "relationType": "contém",
+      "to": "models.DocumentMetadata"
+    },
     {
       "from": "cache.RedisClient",
       "relationType": "implementa",

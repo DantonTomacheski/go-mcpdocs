@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -149,10 +150,10 @@ func TestRedisClient_FlushAll(t *testing.T) {
 
 	// Set multiple test items
 	for i := 1; i <= 3; i++ {
-		key := "test:user:" + string(i+'0')
+		key := "test:user:" + strconv.Itoa(i)
 		data := testStruct{
-			ID:   string(i + '0'),
-			Name: "User " + string(i+'0'),
+			ID:   strconv.Itoa(i),
+			Name: "User " + strconv.Itoa(i),
 			Age:  20 + i,
 		}
 
@@ -166,7 +167,7 @@ func TestRedisClient_FlushAll(t *testing.T) {
 
 	// Verify no keys exist
 	for i := 1; i <= 3; i++ {
-		key := "test:user:" + string(i+'0')
+		key := "test:user:" + strconv.Itoa(i)
 		var actual testStruct
 		err = client.Get(ctx, key, &actual)
 		assert.Error(t, err)
