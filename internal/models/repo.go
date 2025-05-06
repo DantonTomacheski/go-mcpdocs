@@ -52,6 +52,7 @@ type RepositoryDocsResponse struct {
 	Message            string          `json:"message"`
 	RepositoryOwner    string          `json:"repository_owner"`
 	RepositoryName     string          `json:"repository_name"`
+	RepositoryRef      string          `json:"repository_ref,omitempty"`
 	ProcessedFilesCount int             `json:"processed_files_count"`
 	DocumentationItems []Documentation `json:"documentation_items"`
 }

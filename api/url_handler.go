@@ -61,7 +61,7 @@ func (h *Handler) GetDocsFromURL(c *gin.Context) {
 		return
 	} else {
 		var err error
-		documentation, err = h.GitHubClient.GetRepositoryDocumentation(ctx, owner, repo, h.WorkerPoolSize)
+		documentation, err = h.GitHubClient.GetRepositoryDocumentation(ctx, owner, repo, "", h.WorkerPoolSize)
 		if err != nil {
 			statusCode := http.StatusInternalServerError
 			if err.Error() == "repository not found" {

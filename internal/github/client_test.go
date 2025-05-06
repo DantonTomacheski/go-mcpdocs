@@ -56,7 +56,7 @@ func TestGetRepositoryDocumentation(t *testing.T) {
 	client := NewClient(token, 30*time.Second)
 
 	// Test with a known repository that has documentation
-	docs, err := client.GetRepositoryDocumentation(context.Background(), "google", "go-github", 3)
+	docs, err := client.GetRepositoryDocumentation(context.Background(), "google", "go-github", "", 3)
 	if err != nil {
 		t.Fatalf("Failed to get repository documentation: %v", err)
 	}

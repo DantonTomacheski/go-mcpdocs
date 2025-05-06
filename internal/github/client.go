@@ -47,18 +47,37 @@ func (c *Client) GetRepository(ctx context.Context, owner, repo string) (*models
 	return convertToRepositoryModel(repository), nil
 }
 
-// GetRepositoryDocumentation fetches documentation for a repository with concurrency
-func (c *Client) GetRepositoryDocumentation(ctx context.Context, owner, repo string, concurrencyLimit int) ([]models.Documentation, error) {
+// GetRepositoryDocumentation fetches documentation for a repository with concurrency, targeting a specific ref (tag/branch).
+// If ref is empty, it defaults to the repository's default branch.
+func (c *Client) GetRepositoryDocumentation(ctx context.Context, owner, repo, ref string, concurrencyLimit int) ([]models.Documentation, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
-
-	repository, err := c.GetRepository(ctx, owner, repo)
-	if err != nil {
-		log.Printf("Error getting repository %s/%s: %v\n", owner, repo, err)
-		return nil, err
+	
+	// Define variable err at the function level so it's available throughout the function
+	var err error
+	
+	// Determine the ref to use (provided ref or default branch)
+	var refToUse string
+	if ref == "" {
+		// No ref provided, use default branch
+		repository, err := c.GetRepository(ctx, owner, repo)
+		if err != nil {
+			log.Printf("Error getting repository %s/%s to determine default branch: %v\n", owner, repo, err)
+			return nil, err
+		}
+		refToUse = repository.DefaultBranch
+		if refToUse == "" {
+			log.Printf("Error: Default branch is empty for %s/%s\n", owner, repo)
+			return nil, fmt.Errorf("default branch for repository %s/%s is empty", owner, repo)
+		}
+		log.Printf("No specific ref provided, using default branch '%s' for %s/%s", refToUse, owner, repo)
+	} else {
+		// Use the provided ref
+		refToUse = ref
+		log.Printf("Using provided ref '%s' for %s/%s", refToUse, owner, repo)
 	}
-	defaultBranch := repository.DefaultBranch
-	log.Printf("Attempting to fetch documentation for %s/%s from branch '%s'", owner, repo, defaultBranch)
+
+	log.Printf("Attempting to fetch documentation for %s/%s from ref '%s'", owner, repo, refToUse)
 
 	var docPaths []string
 	searchInDocs := false
@@ -77,64 +96,66 @@ func (c *Client) GetRepositoryDocumentation(ctx context.Context, owner, repo str
 	
 	// 1. Verificar cada caminho possível de documentação
 	for _, path := range commonDocPaths {
-		log.Printf("Verificando existência da pasta %s para %s/%s...\n", path, owner, repo)
-		docsDirOpts := &github.RepositoryContentGetOptions{Ref: defaultBranch}
+		log.Printf("Verificando existência da pasta %s para %s/%s no ref '%s'...\n", path, owner, repo, refToUse)
+		docsDirOpts := &github.RepositoryContentGetOptions{Ref: refToUse}
 		
 		// Verificamos se o diretório existe
-		_, _, _, err = c.client.Repositories.GetContents(ctx, owner, repo, path, docsDirOpts)
+		var dirErr error
+		_, _, _, dirErr = c.client.Repositories.GetContents(ctx, owner, repo, path, docsDirOpts)
 		
-		if err == nil {
+		if dirErr == nil {
 			// Caminho encontrado
-			log.Printf("Pasta de documentação %s encontrada para %s/%s.\n", path, owner, repo)
+			log.Printf("Pasta de documentação %s encontrada para %s/%s no ref '%s'.\n", path, owner, repo, refToUse)
 			searchInDocs = true
 			foundDocPath = path
 			break
 		} else {
 			// Verificar se o erro é 404 Not Found
-			ghErr, ok := err.(*github.ErrorResponse)
+			ghErr, ok := dirErr.(*github.ErrorResponse)
 			if ok && ghErr.Response.StatusCode == http.StatusNotFound {
-				log.Printf("Pasta %s não encontrada para %s/%s.\n", path, owner, repo)
-				// Continuamos verificando outros caminhos
+				log.Printf("Pasta %s não encontrada para %s/%s no ref '%s'.\n", path, owner, repo, refToUse)
+				// Continuamos verificando outros caminhos - NÃO fazemos break aqui
 			} else {
 				// Tratamos erros inesperados
-				log.Printf("Erro inesperado verificando pasta %s para %s/%s: %v\n", path, owner, repo, err)
+				log.Printf("Erro inesperado verificando pasta %s para %s/%s no ref '%s': %v\n", path, owner, repo, refToUse, dirErr)
 			}
 		}
 	}
 	
+
 	if !searchInDocs {
-		log.Printf("Nenhuma pasta de documentação encontrada para %s/%s.\n", owner, repo)
+		log.Printf("Nenhuma pasta de documentação encontrada para %s/%s no ref '%s'.\n", owner, repo, refToUse)
 	}
 
-	// 2. Perform search based on whether /docs exists
+	// 2. Perform search based on whether a valid documentation path exists
 	if searchInDocs {
-		log.Printf("Listando arquivos de documentação na pasta %s de %s/%s...\n", foundDocPath, owner, repo)
+		log.Printf("Listando arquivos de documentação na pasta %s de %s/%s no ref '%s'...\n", foundDocPath, owner, repo, refToUse)
 		// Usar nossa função de listagem recursiva no caminho encontrado
-		docPaths, err = c.listDocFilesInPath(ctx, owner, repo, foundDocPath, defaultBranch)
+		docPaths, err = c.listDocFilesInPath(ctx, owner, repo, foundDocPath, refToUse)
 		if err != nil {
-			log.Printf("Erro ao listar arquivos na pasta %s em %s/%s: %v\n", foundDocPath, owner, repo, err)
+			log.Printf("Erro ao listar arquivos na pasta %s em %s/%s no ref '%s': %v\n", foundDocPath, owner, repo, refToUse, err)
 			return nil, fmt.Errorf("erro ao listar arquivos de documentação na pasta %s: %w", foundDocPath, err)
 		}
 		if len(docPaths) == 0 {
-			log.Printf("Nenhum arquivo de documentação encontrado na pasta %s em %s/%s.\n", foundDocPath, owner, repo)
+			log.Printf("Nenhum arquivo de documentação encontrado na pasta %s em %s/%s no ref '%s'.\n", foundDocPath, owner, repo, refToUse)
 			searchInDocs = false
 		} else {
-			log.Printf("Encontrados %d arquivos de documentação na pasta %s de %s/%s\n", len(docPaths), foundDocPath, owner, repo)
+			log.Printf("Encontrados %d arquivos de documentação na pasta %s de %s/%s no ref '%s'\n", len(docPaths), foundDocPath, owner, repo, refToUse)
 		}
 	}
 
 	// Se não existe pasta /docs/ ou não existem arquivos nela, retornamos um erro
 	if !searchInDocs {
-		log.Printf("A pasta /docs/ não foi encontrada em %s/%s ou você configurou para usar apenas a pasta /docs/\n", owner, repo)
+		log.Printf("A pasta /docs/ não foi encontrada em %s/%s no ref '%s' ou você configurou para usar apenas a pasta /docs/\n", owner, repo, refToUse)
 		return nil, errors.New("a pasta /docs/ não foi encontrada no repositório ou está vazia")
 	}
 
 	// 4. Fetch content for the determined docPaths
-	log.Printf("Fetching content for %d documentation paths for %s/%s using concurrency %d...\n", len(docPaths), owner, repo, concurrencyLimit)
+	log.Printf("Fetching content for %d documentation paths for %s/%s from ref '%s' using concurrency %d...\n", len(docPaths), owner, repo, refToUse, concurrencyLimit)
 	var (
 		wg            sync.WaitGroup
 		mu            sync.Mutex
-		documentation []models.Documentation
+		documentation = []models.Documentation{} // Initialize here instead of at the top
 		errChan       = make(chan error, len(docPaths))
 		semaphore     = make(chan struct{}, concurrencyLimit)
 	)
@@ -150,10 +171,10 @@ func (c *Client) GetRepositoryDocumentation(ctx context.Context, owner, repo str
 			}()
 
 			// Fetch content using the determined default branch
-			doc, err := c.getFileContent(ctx, owner, repo, p, defaultBranch)
+			doc, err := c.getFileContent(ctx, owner, repo, p, refToUse)
 			if err != nil {
 				// Log specific file fetch errors
-				log.Printf("Error fetching content for %s/%s path %s: %v\n", owner, repo, p, err)
+				log.Printf("Error fetching content for %s/%s path %s from ref '%s': %v\n", owner, repo, p, refToUse, err)
 				// Send a non-blocking error to avoid deadlock if channel buffer is full
 				select {
 				case errChan <- fmt.Errorf("error fetching content for %s: %w", p, err):
@@ -164,14 +185,14 @@ func (c *Client) GetRepositoryDocumentation(ctx context.Context, owner, repo str
 			}
 
 			if doc == nil {
-				log.Printf("Skipping nil content for path %s in %s/%s\n", p, owner, repo)
+				log.Printf("Skipping nil content for path %s in %s/%s from ref '%s'\n", p, owner, repo, refToUse)
 				return // Skip if content fetching somehow returned nil without error
 			}
 
 			// Convert to model and add to result
 			content, err := doc.GetContent() // Handles base64 decoding
 			if err != nil {
-				log.Printf("Error getting/decoding content for %s: %v\n", p, err)
+				log.Printf("Error getting/decoding content for %s from ref '%s': %v\n", p, refToUse, err)
 				select {
 				case errChan <- fmt.Errorf("error getting/decoding content for %s: %w", p, err):
 				default:
@@ -181,8 +202,8 @@ func (c *Client) GetRepositoryDocumentation(ctx context.Context, owner, repo str
 			}
 
 			docModel := models.Documentation{
-				RepoID:      repository.ID,
-				RepoName:    repository.FullName,
+				RepoID:      0, // Repository ID is not fetched in this function
+				RepoName:    fmt.Sprintf("%s/%s", owner, repo),
 				Path:        p,
 				Content:     content,
 				ContentType: doc.GetType(),
@@ -211,7 +232,7 @@ func (c *Client) GetRepositoryDocumentation(ctx context.Context, owner, repo str
 	if len(fetchErrors) > 0 {
 		// If we got *some* docs despite errors, return them but log the errors.
 		// If we got *no* docs and there were errors, return the error.
-		log.Printf("%d errors occurred during content fetch for %s/%s: %s\n", len(fetchErrors), owner, repo, strings.Join(fetchErrors, "; "))
+		log.Printf("%d errors occurred during content fetch for %s/%s from ref '%s': %s\n", len(fetchErrors), owner, repo, refToUse, strings.Join(fetchErrors, "; "))
 		if len(documentation) == 0 {
 			return nil, fmt.Errorf("failed to fetch documentation content: %s", fetchErrors[0]) // Return first error
 		}
@@ -219,11 +240,11 @@ func (c *Client) GetRepositoryDocumentation(ctx context.Context, owner, repo str
 
 	if len(documentation) == 0 {
 		// This case now means either no paths were found initially, or all fetches failed.
-		log.Printf("No documentation content could be successfully retrieved for %s/%s.\n", owner, repo)
+		log.Printf("No documentation content could be successfully retrieved for %s/%s from ref '%s'.\n", owner, repo, refToUse)
 		return nil, errors.New("no documentation content could be successfully retrieved")
 	}
 
-	log.Printf("Successfully retrieved content for %d documentation files from %s/%s\n", len(documentation), owner, repo)
+	log.Printf("Successfully retrieved content for %d documentation files from %s/%s from ref '%s'\n", len(documentation), owner, repo, refToUse)
 	return documentation, nil
 }
 
@@ -498,3 +519,5 @@ func (c *Client) searchForMarkdownFilesInPath(ctx context.Context, owner, repo, 
 	log.Printf("Found %d potential documentation files via search in path '%s' for %s/%s\n", len(allPaths), path, owner, repo)
 	return allPaths, nil
 }
+
+// listDocFilesInPath is defined in docs_lister.go - REMOVING DUPLICATE DEFINITION
