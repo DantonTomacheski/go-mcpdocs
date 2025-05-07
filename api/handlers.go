@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dtomacheski/extract-data-go/internal/auth"
 	"github.com/dtomacheski/extract-data-go/internal/cache"
 	"github.com/dtomacheski/extract-data-go/internal/github"
 	"github.com/dtomacheski/extract-data-go/internal/models"
@@ -24,12 +25,26 @@ type Handler struct {
 	Logger             *log.Logger
 	Cache              cache.Cache
 	KeyBuilder         *cache.KeyBuilder
+	MinDaysBetweenRefreshes int // Minimum days required between documentation refreshes
+	
+	// Authentication services
+	userStore          *auth.UserStore
+	jwtService         *auth.JWTService
 }
 
 // NewHandler creates a new API handler
-func NewHandler(client *github.Client, docRepo *repository.DocumentRepository, cacheClient cache.Cache, logger *log.Logger, workerPoolSize int) *Handler {
+func NewHandler(client *github.Client, docRepo *repository.DocumentRepository, cacheClient cache.Cache, logger *log.Logger, workerPoolSize int, userStore *auth.UserStore, jwtService *auth.JWTService) *Handler {
 	// Create a key builder with a prefix for the application
 	keyBuilder := cache.NewKeyBuilder("mcpdocs")
+
+	// Create demo admin user if running in development mode
+	// In production, you would handle user creation differently
+	// This logic should ideally be outside the handler initialization or managed by the injected UserStore.
+	// For now, let's keep it but use the injected userStore.
+	_, err := userStore.CreateUser("admin", "admin@example.com", "admin123", "admin")
+	if err != nil && err != auth.ErrUserAlreadyExists {
+		logger.Printf("Warning: Failed to create admin user: %v", err)
+	}
 
 	return &Handler{
 		GitHubClient:       client,
@@ -38,6 +53,9 @@ func NewHandler(client *github.Client, docRepo *repository.DocumentRepository, c
 		Logger:             logger,
 		Cache:              cacheClient,
 		KeyBuilder:         keyBuilder,
+		MinDaysBetweenRefreshes: 3, // Default: minimum 3 days between refreshes
+		userStore:          userStore,  // Use injected userStore
+		jwtService:         jwtService, // Use injected jwtService
 	}
 }
 
@@ -46,6 +64,15 @@ func NewHandler(client *github.Client, docRepo *repository.DocumentRepository, c
 func (h *Handler) GetRepository(c *gin.Context) {
 	owner := c.Param("owner")
 	repo := c.Param("repo")
+	// Optional parameters
+	ref := c.Query("ref")
+	tag := c.Query("tag") // Alias para ref, mantido para compatibilidade
+	if tag != "" && ref == "" {
+		ref = tag // Prioriza ref, mas aceita tag para compatibilidade
+	}
+
+	// Novos parâmetros para suportar a consolidação
+	docsOnly := c.Query("docs_only") == "true"
 
 	if owner == "" || repo == "" {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse{
@@ -59,10 +86,50 @@ func (h *Handler) GetRepository(c *gin.Context) {
 	// Check if the client explicitly wants to skip documentation
 	skipDocs := c.Query("skip_docs") == "true"
 
-	// Generate cache key for repository information (assuming no tag needed here)
+	// Skip docs não pode ser usado em conjunto com docs_only
+	if docsOnly && skipDocs {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Error:   "invalid_request",
+			Message: "Cannot specify both 'docs_only' and 'skip_docs' parameters",
+			Status:  http.StatusBadRequest,
+		})
+		return
+	}
+
+	// Generate cache key for repository information
 	cacheKey := h.KeyBuilder.RepositoryKey(owner, repo)
 	var repository *models.Repository
 	var fromCache bool
+
+	// Check if we need to respect the refresh rate limit
+	forceRefresh := c.Query("force_refresh") == "true"
+	// Se qualquer parâmetro que identifique versão específica for fornecido, ignoramos a validação
+	// Isso inclui ref, tag ou qualquer outro parâmetro de consulta futuro
+	hanySiteFilter := len(c.Request.URL.Query()) > 0 
+	
+	// Permitir refresh se forceRefresh for true OU 
+	// se houver qualquer parâmetro de consulta (indicando uma versão específica)
+	if !forceRefresh && !hanySiteFilter && h.DocumentRepository != nil && h.DocumentRepository.IsEnabled() {
+		// Debug para verificar os parâmetros recebidos
+		h.Logger.Printf("URL query parameters: %v", c.Request.URL.Query())
+		
+		// Apenas aplicar a verificação de cache quando não houver parâmetros específicos
+		canRefresh, nextAllowedTime, err := h.DocumentRepository.CanRefreshRepository(
+			c.Request.Context(), owner, repo, h.MinDaysBetweenRefreshes)
+		
+		if err != nil && !canRefresh {
+			// Calculate days remaining until next refresh
+			daysRemaining := int(time.Until(nextAllowedTime).Hours() / 24) + 1
+			
+			c.JSON(http.StatusTooManyRequests, models.ErrorResponse{
+				Error:   "refresh_rate_limited",
+				Message: fmt.Sprintf("Too early to refresh the project. Last update was %d days ago. Minimum %d days required between updates.", 
+					h.MinDaysBetweenRefreshes - daysRemaining, h.MinDaysBetweenRefreshes),
+				Status:  http.StatusTooManyRequests,
+			})
+			return
+		}
+	}
 
 	// Try to get repository from cache first if cache is enabled
 	if h.Cache != nil && h.Cache.IsEnabled() {
@@ -216,8 +283,8 @@ func (h *Handler) GetRepository(c *gin.Context) {
 func (h *Handler) GetRepositoryDocumentation(c *gin.Context) {
 	owner := c.Param("owner")
 	repo := c.Param("repo")
-	// Read the tag query parameter
-	tag := c.Query("tag") // If empty, the client will use the default branch
+	tag := c.Query("tag") // Optional tag or branch name
+	forceRefresh := c.Query("force_refresh") == "true" // Optional force refresh parameter
 
 	if owner == "" || repo == "" {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse{
@@ -226,6 +293,35 @@ func (h *Handler) GetRepositoryDocumentation(c *gin.Context) {
 			Status:  http.StatusBadRequest,
 		})
 		return
+	}
+	
+	// Check if we need to respect the refresh rate limit
+	// Se qualquer parâmetro que identifique versão específica for fornecido, ignoramos a validação
+	// Isso inclui tag ou qualquer outro parâmetro de consulta futuro
+	hanySiteFilter := len(c.Request.URL.Query()) > 0
+	
+	// Permitir refresh se forceRefresh for true OU
+	// se houver qualquer parâmetro de consulta (indicando uma versão específica)
+	if !forceRefresh && !hanySiteFilter && h.DocumentRepository != nil && h.DocumentRepository.IsEnabled() {
+		// Debug para verificar os parâmetros recebidos
+		h.Logger.Printf("URL query parameters: %v", c.Request.URL.Query())
+		
+		// Apenas aplicar a verificação de cache quando não houver parâmetros específicos
+		canRefresh, nextAllowedTime, err := h.DocumentRepository.CanRefreshRepository(
+			c.Request.Context(), owner, repo, h.MinDaysBetweenRefreshes)
+		
+		if err != nil && !canRefresh {
+			// Calculate days remaining until next refresh
+			daysRemaining := int(time.Until(nextAllowedTime).Hours() / 24) + 1
+			
+			c.JSON(http.StatusTooManyRequests, models.ErrorResponse{
+				Error:   "refresh_rate_limited",
+				Message: fmt.Sprintf("Too early to refresh the project. Last update was %d days ago. Minimum %d days required between updates.", 
+					h.MinDaysBetweenRefreshes - daysRemaining, h.MinDaysBetweenRefreshes),
+				Status:  http.StatusTooManyRequests,
+			})
+			return
+		}
 	}
 
 	ctx, cancel := context.WithCancel(c.Request.Context())

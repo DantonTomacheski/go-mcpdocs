@@ -14,9 +14,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// GetProcessedDocsFromURL handles fetching and processing documentation from a GitHub repository URL
-// This is an enhanced version that extracts code snippets
-func (h *Handler) GetProcessedDocsFromURL(c *gin.Context) {
+// GetCodeSnippetsFromURL handles extracting code snippets from GitHub repository documentation
+// This endpoint processes documentation files and extracts useful code examples
+func (h *Handler) GetCodeSnippetsFromURL(c *gin.Context) {
 	// Get repository URL from query parameters
 	repoURL := c.Query("repo")
 	if repoURL == "" {

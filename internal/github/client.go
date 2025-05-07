@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"sync"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dtomacheski/extract-data-go/internal/models"
@@ -27,7 +27,7 @@ func NewClient(token string, timeout time.Duration) *Client {
 		&oauth2.Token{AccessToken: token},
 	)
 	tc := oauth2.NewClient(context.Background(), ts)
-	
+
 	return &Client{
 		client:  github.NewClient(tc),
 		timeout: timeout,
@@ -38,12 +38,12 @@ func NewClient(token string, timeout time.Duration) *Client {
 func (c *Client) GetRepository(ctx context.Context, owner, repo string) (*models.Repository, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
-	
+
 	repository, _, err := c.client.Repositories.Get(ctx, owner, repo)
 	if err != nil {
 		return nil, processGitHubError(err)
 	}
-	
+
 	return convertToRepositoryModel(repository), nil
 }
 
@@ -52,10 +52,10 @@ func (c *Client) GetRepository(ctx context.Context, owner, repo string) (*models
 func (c *Client) GetRepositoryDocumentation(ctx context.Context, owner, repo, ref string, concurrencyLimit int) ([]models.Documentation, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
-	
+
 	// Define variable err at the function level so it's available throughout the function
 	var err error
-	
+
 	// Determine the ref to use (provided ref or default branch)
 	var refToUse string
 	if ref == "" {
@@ -84,25 +84,26 @@ func (c *Client) GetRepositoryDocumentation(ctx context.Context, owner, repo, re
 
 	// Define caminhos comuns de documentação em diferentes repositórios
 	commonDocPaths := []string{
-		"docs",           // Caminho padrão (Next.js, Vue, etc)
-		"src/content",    // React.dev
-		"Documentation",  // Swift, alguns projetos da Apple
+		"docs",          // Caminho padrão (Next.js, Vue, etc)
+		"src/content",   // React.dev
+		"src/docs",      // tailwind.css
+		"Documentation", // Swift, alguns projetos da Apple
 		"documentation", // Variação com letra minúscula
 		"doc",           // Alguns projetos antigos
 	}
-	
+
 	// Variável para armazenar o caminho de documentação encontrado
 	var foundDocPath string
-	
+
 	// 1. Verificar cada caminho possível de documentação
 	for _, path := range commonDocPaths {
 		log.Printf("Verificando existência da pasta %s para %s/%s no ref '%s'...\n", path, owner, repo, refToUse)
 		docsDirOpts := &github.RepositoryContentGetOptions{Ref: refToUse}
-		
+
 		// Verificamos se o diretório existe
 		var dirErr error
 		_, _, _, dirErr = c.client.Repositories.GetContents(ctx, owner, repo, path, docsDirOpts)
-		
+
 		if dirErr == nil {
 			// Caminho encontrado
 			log.Printf("Pasta de documentação %s encontrada para %s/%s no ref '%s'.\n", path, owner, repo, refToUse)
@@ -118,13 +119,41 @@ func (c *Client) GetRepositoryDocumentation(ctx context.Context, owner, repo, re
 			} else {
 				// Tratamos erros inesperados
 				log.Printf("Erro inesperado verificando pasta %s para %s/%s no ref '%s': %v\n", path, owner, repo, refToUse, dirErr)
+				// Consider this a potentially transient error or a configuration issue, but allow checking other common paths.
 			}
 		}
 	}
-	
 
+	// Se nenhum caminho comum foi encontrado, tente procurar na raiz por pastas de documentação padrão.
 	if !searchInDocs {
-		log.Printf("Nenhuma pasta de documentação encontrada para %s/%s no ref '%s'.\n", owner, repo, refToUse)
+		log.Printf("Nenhum caminho de documentação comum encontrado para %s/%s no ref '%s'. Tentando buscar na raiz...\n", owner, repo, refToUse)
+		rootContentsOpts := &github.RepositoryContentGetOptions{Ref: refToUse}
+		_, rootDirContents, _, rootErr := c.client.Repositories.GetContents(ctx, owner, repo, "", rootContentsOpts)
+
+		if rootErr != nil {
+			log.Printf("Erro ao listar conteúdo da raiz de %s/%s no ref '%s': %v\n", owner, repo, refToUse, rootErr)
+			// Não retorna erro aqui, pois o comportamento final de 'pasta não encontrada' será tratado mais abaixo.
+		} else {
+			standardRootDocFolders := []string{"docs", "documentation", "doc"}
+			for _, item := range rootDirContents {
+				if item.GetType() == "dir" {
+					for _, standardFolder := range standardRootDocFolders {
+						if strings.EqualFold(item.GetName(), standardFolder) {
+							log.Printf("Pasta de documentação '%s' encontrada na raiz de %s/%s no ref '%s'.\n", item.GetName(), owner, repo, refToUse)
+							foundDocPath = item.GetName()
+							searchInDocs = true
+							break // Sai do loop de standardRootDocFolders
+						}
+					}
+				}
+				if searchInDocs {
+					break // Sai do loop de rootDirContents, pois já encontrou uma pasta
+				}
+			}
+			if !searchInDocs {
+				log.Printf("Nenhuma pasta de documentação padrão (docs, documentation, doc) encontrada na raiz de %s/%s no ref '%s'.\n", owner, repo, refToUse)
+			}
+		}
 	}
 
 	// 2. Perform search based on whether a valid documentation path exists
@@ -146,8 +175,8 @@ func (c *Client) GetRepositoryDocumentation(ctx context.Context, owner, repo, re
 
 	// Se não existe pasta /docs/ ou não existem arquivos nela, retornamos um erro
 	if !searchInDocs {
-		log.Printf("A pasta /docs/ não foi encontrada em %s/%s no ref '%s' ou você configurou para usar apenas a pasta /docs/\n", owner, repo, refToUse)
-		return nil, errors.New("a pasta /docs/ não foi encontrada no repositório ou está vazia")
+		log.Printf("Nenhuma pasta de documentação aplicável foi encontrada em %s/%s no ref '%s' após verificar caminhos comuns e a raiz do repositório.\n", owner, repo, refToUse)
+		return nil, errors.New("nenhuma pasta de documentação aplicável foi encontrada no repositório ou está vazia")
 	}
 
 	// 4. Fetch content for the determined docPaths
@@ -252,7 +281,7 @@ func (c *Client) GetRepositoryDocumentation(ctx context.Context, owner, repo, re
 func (c *Client) findDocumentation(ctx context.Context, owner, repo, branch string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
-	
+
 	// Common documentation paths - Expanded to match more documentation locations
 	commonPaths := []string{
 		"README.md",
@@ -272,26 +301,26 @@ func (c *Client) findDocumentation(ctx context.Context, owner, repo, branch stri
 		"tutorials",
 		"guides",
 		"reference"}
-	
+
 	var docPaths []string
-	
+
 	// Check for README.md first (most common)
 	_, _, resp, err := c.client.Repositories.GetContents(ctx, owner, repo, "README.md", &github.RepositoryContentGetOptions{
 		Ref: branch,
 	})
-	
+
 	if err == nil {
 		docPaths = append(docPaths, "README.md")
 	} else if resp != nil && resp.StatusCode != http.StatusNotFound {
 		return nil, processGitHubError(err)
 	}
-	
+
 	// Check for other documentation files/directories
 	for _, path := range commonPaths[1:] {
 		_, dirContent, resp, err := c.client.Repositories.GetContents(ctx, owner, repo, path, &github.RepositoryContentGetOptions{
 			Ref: branch,
 		})
-		
+
 		if err == nil {
 			if len(dirContent) > 0 {
 				// If it's a directory, add all markdown files
@@ -308,7 +337,7 @@ func (c *Client) findDocumentation(ctx context.Context, owner, repo, branch stri
 			return nil, processGitHubError(err)
 		}
 	}
-	
+
 	return docPaths, nil
 }
 
@@ -316,18 +345,18 @@ func (c *Client) findDocumentation(ctx context.Context, owner, repo, branch stri
 func (c *Client) getFileContent(ctx context.Context, owner, repo, path, branch string) (*github.RepositoryContent, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
-	
+
 	fileContent, _, resp, err := c.client.Repositories.GetContents(ctx, owner, repo, path, &github.RepositoryContentGetOptions{
 		Ref: branch,
 	})
-	
+
 	if err != nil {
 		if resp != nil && resp.StatusCode == http.StatusNotFound {
 			return nil, nil // Return nil without error for not found
 		}
 		return nil, processGitHubError(err)
 	}
-	
+
 	return fileContent, nil
 }
 
@@ -335,24 +364,24 @@ func (c *Client) getFileContent(ctx context.Context, owner, repo, path, branch s
 func (c *Client) SearchRepositories(ctx context.Context, query string, page, perPage int) ([]*models.Repository, int, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
-	
+
 	opts := &github.SearchOptions{
 		ListOptions: github.ListOptions{
 			Page:    page,
 			PerPage: perPage,
 		},
 	}
-	
+
 	result, resp, err := c.client.Search.Repositories(ctx, query, opts)
 	if err != nil {
 		return nil, 0, processGitHubError(err)
 	}
-	
+
 	repositories := make([]*models.Repository, 0, len(result.Repositories))
 	for _, repo := range result.Repositories {
 		repositories = append(repositories, convertToRepositoryModel(repo))
 	}
-	
+
 	return repositories, resp.NextPage, nil
 }
 
@@ -363,7 +392,7 @@ func convertToRepositoryModel(repo *github.Repository) *models.Repository {
 	if repo == nil {
 		return nil
 	}
-	
+
 	r := &models.Repository{
 		ID:            repo.GetID(),
 		Name:          repo.GetName(),
@@ -376,24 +405,24 @@ func convertToRepositoryModel(repo *github.Repository) *models.Repository {
 		URL:           repo.GetURL(),
 		HTMLURL:       repo.GetHTMLURL(),
 	}
-	
+
 	if repo.GetCreatedAt().Time != (time.Time{}) {
 		r.CreatedAt = repo.GetCreatedAt().Time
 	}
-	
+
 	if repo.GetUpdatedAt().Time != (time.Time{}) {
 		r.UpdatedAt = repo.GetUpdatedAt().Time
 	}
-	
+
 	if repo.Topics != nil {
 		r.Topics = repo.Topics
 	}
-	
+
 	// Extract documentation URL if available
 	if repo.GetHasWiki() {
 		r.DocumentationURL = repo.GetHTMLURL() + "/wiki"
 	}
-	
+
 	return r
 }
 
@@ -434,7 +463,7 @@ func isDocumentationFile(filename string) bool {
 func (c *Client) searchForMarkdownFiles(ctx context.Context, owner, repo string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
-	
+
 	query := fmt.Sprintf("repo:%s/%s extension:md", owner, repo)
 	var allPaths []string
 	opts := &github.SearchOptions{
@@ -456,7 +485,7 @@ func (c *Client) searchForMarkdownFiles(ctx context.Context, owner, repo string)
 			log.Printf("Error searching code: %v\n", err)
 			return nil, processGitHubError(err) // Use centralized error processing
 		}
-	
+
 		for _, item := range result.CodeResults {
 			if item.Path != nil {
 				if isMarkdownFile(*item.Path) || isDocumentationFile(*item.Name) {
@@ -464,13 +493,13 @@ func (c *Client) searchForMarkdownFiles(ctx context.Context, owner, repo string)
 				}
 			}
 		}
-		
+
 		if resp.NextPage == 0 {
 			break // No more pages
 		}
 		opts.Page = resp.NextPage // Set the next page number
 	}
-	
+
 	log.Printf("Found %d potential documentation files via search for %s/%s\n", len(allPaths), owner, repo)
 	return allPaths, nil
 }
@@ -479,7 +508,7 @@ func (c *Client) searchForMarkdownFiles(ctx context.Context, owner, repo string)
 func (c *Client) searchForMarkdownFilesInPath(ctx context.Context, owner, repo, path string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
-	
+
 	query := fmt.Sprintf("repo:%s/%s path:%s extension:md", owner, repo, path)
 	var allPaths []string
 	opts := &github.SearchOptions{
@@ -501,7 +530,7 @@ func (c *Client) searchForMarkdownFilesInPath(ctx context.Context, owner, repo, 
 			log.Printf("Error searching code: %v\n", err)
 			return nil, processGitHubError(err) // Use centralized error processing
 		}
-	
+
 		for _, item := range result.CodeResults {
 			if item.Path != nil {
 				if isMarkdownFile(*item.Path) || isDocumentationFile(*item.Name) {
@@ -509,13 +538,13 @@ func (c *Client) searchForMarkdownFilesInPath(ctx context.Context, owner, repo, 
 				}
 			}
 		}
-		
+
 		if resp.NextPage == 0 {
 			break // No more pages
 		}
 		opts.Page = resp.NextPage // Set the next page number
 	}
-	
+
 	log.Printf("Found %d potential documentation files via search in path '%s' for %s/%s\n", len(allPaths), path, owner, repo)
 	return allPaths, nil
 }

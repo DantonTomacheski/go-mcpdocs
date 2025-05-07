@@ -12,6 +12,7 @@ import (
 
 	"github.com/dtomacheski/extract-data-go/api"
 	"github.com/dtomacheski/extract-data-go/config"
+	"github.com/dtomacheski/extract-data-go/internal/auth"
 	"github.com/dtomacheski/extract-data-go/internal/cache"
 	"github.com/dtomacheski/extract-data-go/internal/database"
 	"github.com/dtomacheski/extract-data-go/internal/github"
@@ -85,8 +86,16 @@ func main() {
 		cacheClient = &cache.RedisClient{}
 	}
 
-	// Initialize API handler
-	handler := api.NewHandler(githubClient, docRepo, cacheClient, logger, cfg.WorkerPoolSize)
+	// Initialize UserStore
+	userStore := auth.NewUserStore()
+
+	// Initialize JWTService
+	jwtService := auth.NewJWTService(cfg)
+
+	// Create API handler
+	handler := api.NewHandler(githubClient, docRepo, cacheClient, logger, cfg.WorkerPoolSize, userStore, jwtService)
+	// Set minimum days between refreshes from config
+	handler.MinDaysBetweenRefreshes = cfg.MinDaysBetweenRefreshes
 
 	// Set up router
 	router := api.SetupRouter(handler)

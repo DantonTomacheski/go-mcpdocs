@@ -178,3 +178,33 @@ func (c *Client) DeleteDocumentation(ctx context.Context, processedPath string) 
 	_, err := c.docs.DeleteOne(ctx, filter)
 	return err
 }
+
+// GetLatestDocumentForRepo finds the most recently updated document for a repository
+func (c *Client) GetLatestDocumentForRepo(ctx context.Context, pathPrefix string) (*DocStorage, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	// Create a filter for documents with processed_path starting with the provided prefix
+	filter := bson.D{{
+		Key: "processed_path",
+		Value: bson.D{{
+			Key:   "$regex",
+			Value: "^" + pathPrefix,
+		}},
+	}}
+
+	// Define options to sort by updated_at in descending order and limit to 1 result
+	opts := options.FindOne().SetSort(bson.D{{Key: "updated_at", Value: -1}})
+
+	// Find the most recent document
+	var doc DocStorage
+	err := c.docs.FindOne(ctx, filter, opts).Decode(&doc)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, nil // No document found, not an error
+		}
+		return nil, err
+	}
+
+	return &doc, nil
+}

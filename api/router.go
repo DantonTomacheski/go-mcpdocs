@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/dtomacheski/extract-data-go/internal/auth"
 	"github.com/gin-gonic/gin"
 )
 
@@ -18,24 +19,59 @@ func SetupRouter(handler *Handler) *gin.Engine {
 	// Add request timeout middleware
 	router.Use(timeoutMiddleware(time.Minute))
 
+	// Set up Swagger documentation
+	SetupSwagger(router)
+
 	// Health check endpoint
 	router.GET("/health", handler.HealthCheck)
+
+	// Authentication routes
+	authRoutes := router.Group("/auth")
+	{
+		authRoutes.POST("/login", handler.LoginHandler)
+		authRoutes.POST("/register", handler.RegisterHandler)
+		authRoutes.POST("/refresh", handler.RefreshTokenHandler)
+	}
 
 	// API routes
 	v1 := router.Group("/api/v1")
 	{
-		// Repository endpoints
+		// Repository endpoints (public)
 		v1.GET("/repos/:owner/:repo", handler.GetRepository)
-		v1.GET("/repos/:owner/:repo/docs", handler.GetRepositoryDocumentation)
 		
-		// Search endpoint
+		// Repositories query endpoint - novo endpoint semântico (public)
+		v1.GET("/repositories", handler.QueryRepositories)
+		
+		// Search endpoint (legado) (public)
 		v1.GET("/search/repos", handler.SearchRepositories)
 		
-		// Direct URL endpoint (new approach)
-		v1.GET("/docs", handler.GetDocsFromURL)
+		// Documentation endpoints (hierarchical organization)
+		// These endpoints will be protected by JWT authentication
+		docs := v1.Group("/docs")
+		docs.Use(auth.JWTMiddleware(handler.jwtService)) // Apply JWT middleware to this group
+		{
+			// Raw documentation files endpoint
+			docs.GET("/raw", handler.GetRawDocsFromURL)
+			
+			// Code snippets endpoint
+			docs.GET("/snippets", handler.GetCodeSnippetsFromURL)
+			
+			// Endpoint to get documentation for a specific repository (now protected)
+			// This was previously v1.GET("/repos/:owner/:repo/docs", handler.GetRepositoryDocumentation)
+			// Moving it here to be under the authenticated /docs group
+			docs.GET("/repos/:owner/:repo", handler.GetRepositoryDocumentation)
+		}
 		
-		// Enhanced documentation endpoint
-		v1.GET("/snippets", handler.GetProcessedDocsFromURL)
+		// Legacy endpoints (for backward compatibility)
+		// These are now also protected if they map to protected new endpoints
+		// Note: The middleware is applied to the group, so these might need separate handling 
+		// if some should remain public and others protected based on the old path.
+		// For simplicity, making them protected for now if they use handlers now under /docs.
+
+		// Redirects to /api/v1/docs/raw (now protected)
+		v1.GET("/docs", auth.JWTMiddleware(handler.jwtService), handler.GetRawDocsFromURL)      
+		// Redirects to /api/v1/docs/snippets (now protected)
+		v1.GET("/snippets", auth.JWTMiddleware(handler.jwtService), handler.GetCodeSnippetsFromURL) 
 	}
 
 	return router

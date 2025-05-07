@@ -12,8 +12,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// GetDocsFromURL handles fetching documentation from a GitHub repository URL
-func (h *Handler) GetDocsFromURL(c *gin.Context) {
+// GetRawDocsFromURL handles fetching raw documentation files from a GitHub repository URL
+func (h *Handler) GetRawDocsFromURL(c *gin.Context) {
 	repoURL := c.Query("repo")
 	if repoURL == "" {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse{

@@ -6,7 +6,7 @@ MAIN_FILE=main.go
 # Default target executed when you just run "make"
 .DEFAULT_GOAL := build
 
-.PHONY: all build run clean test help dev
+.PHONY: all build run clean test help dev swagger
 
 all: build
 
@@ -25,6 +25,11 @@ run: build
 dev:
 	@echo "Starting development server with Air (live-reload)..."
 	@air
+
+## swagger: Run the application with Swagger UI enabled
+swagger: build
+	@echo "Starting server with Swagger UI at http://localhost:8081/swagger"
+	@PORT=8081 ./${OUTPUT_DIR}/${BINARY_NAME}
 
 ## test: Run Go tests
 test:

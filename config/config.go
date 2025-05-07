@@ -20,6 +20,13 @@ type Config struct {
 	RedisURI       string
 	EnableCache    bool
 	CacheTTL       time.Duration
+	MinDaysBetweenRefreshes int // Minimum days required between documentation refreshes
+	
+	// JWT Authentication settings
+	JWTSecret           string
+	JWTAccessDuration   time.Duration
+	JWTRefreshDuration  time.Duration
+	JWTIssuer           string
 }
 
 // Load loads configuration from environment variables
@@ -89,6 +96,60 @@ func Load() (*Config, error) {
 		}
 	}
 
+	// Get minimum days between refreshes
+	minDaysBetweenRefreshesStr := os.Getenv("MIN_DAYS_BETWEEN_REFRESHES")
+	minDaysBetweenRefreshes := 3 // Default value: 3 days
+	if minDaysBetweenRefreshesStr != "" {
+		var err error
+		minDaysBetweenRefreshes, err = strconv.Atoi(minDaysBetweenRefreshesStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid MIN_DAYS_BETWEEN_REFRESHES: %v", err)
+		}
+		if minDaysBetweenRefreshes < 0 {
+			minDaysBetweenRefreshes = 3 // Ensure a positive value
+		}
+	}
+
+	// JWT settings
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		jwtSecret = "default_jwt_secret_key_change_me_in_production" // Default secret (not secure for production)
+	}
+
+	// JWT access token duration
+	accessDurStr := os.Getenv("JWT_ACCESS_DURATION")
+	accessDuration := 15 * time.Minute // Default value: 15 minutes
+	if accessDurStr != "" {
+		var err error
+		accessDuration, err = time.ParseDuration(accessDurStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid JWT_ACCESS_DURATION: %v", err)
+		}
+		if accessDuration <= 0 {
+			accessDuration = 15 * time.Minute // Ensure a positive value
+		}
+	}
+
+	// JWT refresh token duration
+	refreshDurStr := os.Getenv("JWT_REFRESH_DURATION")
+	refreshDuration := 7 * 24 * time.Hour // Default value: 7 days
+	if refreshDurStr != "" {
+		var err error
+		refreshDuration, err = time.ParseDuration(refreshDurStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid JWT_REFRESH_DURATION: %v", err)
+		}
+		if refreshDuration <= 0 {
+			refreshDuration = 7 * 24 * time.Hour // Ensure a positive value
+		}
+	}
+
+	// JWT issuer
+	jwtIssuer := os.Getenv("JWT_ISSUER")
+	if jwtIssuer == "" {
+		jwtIssuer = "github-docs-api" // Default issuer
+	}
+
 	return &Config{
 		GitHubToken:    token,
 		Port:           port,
@@ -99,5 +160,10 @@ func Load() (*Config, error) {
 		RedisURI:       redisURI,
 		EnableCache:    enableCache,
 		CacheTTL:       cacheTTL,
+		MinDaysBetweenRefreshes: minDaysBetweenRefreshes,
+		JWTSecret:          jwtSecret,
+		JWTAccessDuration:  accessDuration,
+		JWTRefreshDuration: refreshDuration,
+		JWTIssuer:          jwtIssuer,
 	}, nil
 }

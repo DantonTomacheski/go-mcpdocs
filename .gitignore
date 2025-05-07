@@ -9,8 +9,6 @@ dev-debug.log
 # Dependency directories
 node_modules/
 
-# Environment variables
-.env
 
 # Editor directories and files
 .idea
@@ -33,3 +31,6 @@ tasks/
 extract-data-go
 github-doc-api
 pkg/
+.env
+.gitignore
+.env.swagger
