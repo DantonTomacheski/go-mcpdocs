@@ -9,7 +9,8 @@
         "Foco em fornecer contexto atualizado e confiável para LLMs e desenvolvedores.",
         "Possui endpoints RESTful, processadores de documentação, e mecanismos de segurança e performance em evolução.",
         "Entidade detalhada: Representa o núcleo do sistema go-mcpdocs, integrando componentes técnicos, objetivos de negócio e evolução contínua.",
-        "Relaciona-se com status, planejamento e objetivos do projeto para garantir alinhamento estratégico e operacional."
+        "Relaciona-se com status, planejamento e objetivos do projeto para garantir alinhamento estratégico e operacional.",
+        "Objetivos principais incluem: fornecer contexto confiável, apoiar desenvolvedores, garantir alta performance, e oferecer flexibilidade e escalabilidade."
       ]
     },
     {
@@ -53,7 +54,9 @@
         "Carregado a partir de variáveis de ambiente ou arquivo .env",
         "Inclui valores padrão para parâmetros não especificados nas variáveis de ambiente",
         "Suporta configuração de caching com Redis via Upstash para melhorar performance",
-        "Configuração de TTL ajustável para controlar o tempo de vida dos itens em cache"
+        "Configuração de TTL ajustável para controlar o tempo de vida dos itens em cache",
+        "Novas configurações adicionadas para Redis: REDIS_URI conecta à instância Upstash Redis",
+        "Configuração de cache unificada que suporta múltiplas implementações através da interface comum"
       ]
     },
     {
@@ -133,14 +136,16 @@
       "name": "cache.Cache",
       "entityType": "interface",
       "observations": [
-        "Método responsável por processar requisições para buscar repositórios no GitHub",
-        "Extrai e valida o parâmetro de consulta 'q' da URL",
-        "Aprimora automaticamente a consulta adicionando termos relacionados a documentação se não estiverem presentes",
-        "Implementa paginação com parâmetros page e per_page, com valores padrão e validação",
-        "Utiliza o cliente GitHub para executar a busca de repositórios",
-        "Trata erros como token inválido e limites de requisição excedidos",
-        "Retorna resultados paginados em formato JSON com metadados de paginação",
-        "Fornece informações sobre a página atual, itens por página e link para próxima página"
+        "Interface para abstração de mecanismos de cache",
+        "Define métodos para armazenar, recuperar e invalidar itens no cache",
+        "Implementada por diferentes providers como MemoryCache e RedisCache",
+        "Utilizada para melhorar performance evitando chamadas repetidas à API do GitHub",
+        "Suporta configuração de TTL para controlar a validade dos itens armazenados",
+        "Define métodos como Get(key string) e Set(key string, value interface{}, ttl time.Duration)",
+        "A integração do cache é crucial para a performance, podendo reduzir significativamente o tempo de resposta",
+        "A chave de cache geralmente inclui o nome do repositório, owner e branch",
+        "Localizada em internal/cache/cache.go com definição da interface e utilitários de construção de chaves",
+        "Oferece fallback gracioso: se o cache estiver indisponível, o sistema retorna às chamadas diretas de API"
       ]
     },
     {
@@ -399,6 +404,26 @@
     }
   ],
   "relations": [
+    {
+      "from": "api.Handler.GetRepositoryDocumentation",
+      "relationType": "implementa",
+      "to": "GET /repository/:owner/:repo/docs"
+    },
+    {
+      "from": "api.Handler.GetRepository",
+      "relationType": "implementa",
+      "to": "GET /repository/:owner/:repo"
+    },
+    {
+      "from": "api.Handler.SearchRepositories",
+      "relationType": "implementa",
+      "to": "GET /search/repositories"
+    },
+    {
+      "from": "api.Handler.HealthCheck",
+      "relationType": "implementa",
+      "to": "GET /health"
+    },
     {
       "from": "api.Handler.GetRepositoryDocumentation",
       "relationType": "utiliza",
@@ -703,6 +728,84 @@
       "from": "github.Client.listDocFilesInPath",
       "relationType": "chama",
       "to": "github.Client.listFilesRecursively"
+    },
+    {
+      "from": "api.Handler.GetRepositoryDocumentation",
+      "relationType": "utiliza",
+      "to": "cache.RedisCache"
+    },
+    {
+      "from": "api.Handler.GetRepository",
+      "relationType": "utiliza",
+      "to": "cache.RedisCache"
+    },
+    {
+      "from": "api.Handler.SearchRepositories",
+      "relationType": "utiliza",
+      "to": "cache.RedisCache"
     }
-  ]
+  ],
+  "endpoints": [
+    {
+      "name": "GET /version",
+      "description": "Retorna informações sobre a versão da API",
+      "parameters": [],
+      "responseModel": "models.VersionResponse"
+    },
+    {
+      "name": "GET /repository/:owner/:repo/docs",
+      "description": "Recupera os arquivos de documentação processados de um repositório específico do GitHub",
+      "parameters": [
+        {"name": "owner", "type": "string", "required": true, "description": "O nome do proprietário do repositório"},
+        {"name": "repo", "type": "string", "required": true, "description": "O nome do repositório"},
+        {"name": "branch", "type": "string", "required": false, "description": "O nome do branch específico (opcional)"}  
+      ],
+      "responseModel": "models.RepositoryDocsResponse"
+    },
+    {
+      "name": "GET /repository/:owner/:repo",
+      "description": "Recupera informações básicas sobre um repositório do GitHub",
+      "parameters": [
+        {"name": "owner", "type": "string", "required": true, "description": "O nome do proprietário do repositório"},
+        {"name": "repo", "type": "string", "required": true, "description": "O nome do repositório"}
+      ],
+      "responseModel": "models.Repository"
+    },
+    {
+      "name": "GET /search/repositories",
+      "description": "Busca repositórios no GitHub com base em uma query",
+      "parameters": [
+        {"name": "query", "type": "string", "required": true, "description": "O termo de busca para os repositórios"},
+        {"name": "page", "type": "integer", "required": false, "description": "O número da página dos resultados"},
+        {"name": "per_page", "type": "integer", "required": false, "description": "O número de resultados por página"}
+      ],
+      "responseModel": "models.SearchResponse"
+    },
+    {
+      "name": "GET /health",
+      "description": "Verifica o status da aplicação",
+      "parameters": [],
+      "responseModel": "models.HealthResponse"
+    }
+  ],
+  "schemaVersion": "2.0",
+  "lastUpdated": "2025-05-09",
+  "cacheImplementation": {
+    "name": "Upstash Redis Cache",
+    "description": "Implementação de cache Redis usando Upstash como serviço",
+    "configVars": [
+      {"name": "REDIS_URI", "description": "Connection string for Upstash Redis", "format": "rediss://default:<PASSWORD>@<HOSTNAME>.upstash.io:6379"},
+      {"name": "CACHE_TTL", "description": "Default time-to-live for cached items", "format": "Go duration format (e.g., 1h, 30m)"}
+    ],
+    "cacheKeyPatterns": [
+      {"pattern": "mcpdocs:repo:<owner>:<repo>", "purpose": "Repository metadata"},
+      {"pattern": "mcpdocs:docs:<owner>:<repo>", "purpose": "Repository documentation"},
+      {"pattern": "mcpdocs:search:<query>:<page>:<perPage>", "purpose": "Search results"}
+    ],
+    "integrationPoints": [
+      "api.Handler.GetRepository",
+      "api.Handler.GetRepositoryDocumentation",
+      "api.Handler.SearchRepositories"
+    ]
+  }
 }
