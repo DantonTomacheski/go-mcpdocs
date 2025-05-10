@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"path/filepath"
-	"strings"
 
 	"github.com/dtomacheski/extract-data-go/internal/models"
 	"github.com/dtomacheski/extract-data-go/internal/utils"
@@ -61,7 +59,7 @@ func (h *Handler) GetRawDocsFromURL(c *gin.Context) {
 		return
 	} else {
 		var err error
-		documentation, err = h.GitHubClient.GetRepositoryDocumentation(ctx, owner, repo, "", h.WorkerPoolSize)
+		documentation, err = h.GitHubClient.GetRepositoryDocumentation(ctx, owner, repo, "", "", h.WorkerPoolSize)
 		if err != nil {
 			statusCode := http.StatusInternalServerError
 			if err.Error() == "repository not found" {
@@ -91,9 +89,4 @@ func (h *Handler) GetRawDocsFromURL(c *gin.Context) {
 	})
 }
 
-// isDocFile checks if a file is a documentation file
-func isDocFile(filename string) bool {
-	ext := strings.ToLower(filepath.Ext(filename))
-	return ext == ".md" || ext == ".rst" || ext == ".txt" ||
-		ext == ".mdx" || ext == ".asciidoc" || ext == ".adoc"
-}
+

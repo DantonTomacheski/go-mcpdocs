@@ -228,7 +228,19 @@ func (h *Handler) GetRepository(c *gin.Context) {
 	if !docsFromCache {
 		// Fetch documentation from the repository in the background
 		h.Logger.Printf("Auto-fetching documentation for %s/%s", owner, repo)
-		documentationItems, docErr = h.GitHubClient.GetRepositoryDocumentation(ctx, owner, repo, "", h.WorkerPoolSize)
+
+		// First, get repository details to determine the default branch for documentation fetching
+		var defaultBranchToUse string
+		repoDetails, detailsErr := h.GitHubClient.GetRepository(ctx, owner, repo)
+		if detailsErr != nil {
+			h.Logger.Printf("Error fetching repository details for %s/%s to get default branch (needed for docs auto-fetch): %v", owner, repo, detailsErr)
+			// If we can't get the default branch, GetRepositoryDocumentation will likely fail if specificRef is also empty.
+			// Proceeding with empty defaultBranchToUse; client logic will handle it.
+		} else if repoDetails != nil {
+			defaultBranchToUse = repoDetails.DefaultBranch
+		}
+
+		documentationItems, docErr = h.GitHubClient.GetRepositoryDocumentation(ctx, owner, repo, defaultBranchToUse, "", h.WorkerPoolSize)
 
 		// If we have documentation and no error, cache it and store in MongoDB if configured
 		if docErr == nil && len(documentationItems) > 0 {
@@ -393,7 +405,31 @@ func (h *Handler) GetRepositoryDocumentation(c *gin.Context) {
 				// Here we need to fetch specific documents by path
 				// If the GitHub client doesn't have a method to fetch specific documents,
 				// we'll fetch all documents and filter them
-				allDocs, err := h.GitHubClient.GetRepositoryDocumentation(ctx, owner, repo, tag, h.WorkerPoolSize)
+				var defaultBranchForGHClient string
+				if tag == "" { // If no specific tag/ref is requested, we need the default branch
+					repoInfo, repoErr := h.GitHubClient.GetRepository(ctx, owner, repo)
+					if repoErr != nil {
+						h.Logger.Printf("Failed to fetch repository info for %s/%s to get default branch: %v", owner, repo, repoErr)
+						c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+							Error:   "github_error",
+							Message: fmt.Sprintf("Failed to retrieve repository details for default branch: %s", repoErr.Error()),
+							Status:  http.StatusInternalServerError,
+						})
+						return
+					}
+					defaultBranchForGHClient = repoInfo.DefaultBranch
+					if defaultBranchForGHClient == "" {
+						h.Logger.Printf("Repository %s/%s has an empty default branch string", owner, repo)
+						c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+							Error:   "repository_error",
+							Message: "Repository's default branch is not set or is empty.",
+							Status:  http.StatusInternalServerError,
+						})
+						return
+					}
+				}
+		
+				allDocs, err := h.GitHubClient.GetRepositoryDocumentation(ctx, owner, repo, defaultBranchForGHClient, tag, h.WorkerPoolSize)
 				if err != nil {
 					h.Logger.Printf("Failed to fetch missing documents: %v", err)
 					// Continue with partial results if we have some
@@ -434,12 +470,36 @@ func (h *Handler) GetRepositoryDocumentation(c *gin.Context) {
 
 	// If nothing in metadata cache, fall back to fetching everything from GitHub
 	var err error
-	if !fromCache && !fromFragmentedCache {
-		h.Logger.Printf("Metadata cache miss or disabled, fetching all documentation from GitHub: %s/%s (ref: %s)", owner, repo, tag)
+	if !fromCache && !fromFragmentedCache { // This condition might need refinement based on how fromFragmentedCache is set for full misses
+		h.Logger.Printf("Fetching repository documentation from GitHub for: %s/%s (ref: %s, forceRefresh: %t)", owner, repo, tag, forceRefresh)
+
+		var defaultBranchForGHClient string
+		if tag == "" { // If no specific tag/ref is requested, we need the default branch
+			repoInfo, repoErr := h.GitHubClient.GetRepository(ctx, owner, repo)
+			if repoErr != nil {
+				h.Logger.Printf("Failed to fetch repository info for %s/%s to get default branch: %v", owner, repo, repoErr)
+				c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+					Error:   "github_error",
+					Message: fmt.Sprintf("Failed to retrieve repository details for default branch: %s", repoErr.Error()),
+					Status:  http.StatusInternalServerError,
+				})
+				return
+			}
+			defaultBranchForGHClient = repoInfo.DefaultBranch
+			if defaultBranchForGHClient == "" {
+				h.Logger.Printf("Repository %s/%s has an empty default branch string", owner, repo)
+				c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+					Error:   "repository_error",
+					Message: "Repository's default branch is not set or is empty.",
+					Status:  http.StatusInternalServerError,
+				})
+				return
+			}
+		}
 		
-		// Call the client function that returns all documentation items, passing the tag
-		documentationItems, err = h.GitHubClient.GetRepositoryDocumentation(ctx, owner, repo, tag, h.WorkerPoolSize)
+		documentationItems, err = h.GitHubClient.GetRepositoryDocumentation(ctx, owner, repo, defaultBranchForGHClient, tag, h.WorkerPoolSize)
 		if err != nil {
+			h.Logger.Printf("Error fetching repository documentation for %s/%s (ref: %s): %v", owner, repo, tag, err)
 			statusCode := getStatusCodeFromError(err)
 			c.JSON(statusCode, models.ErrorResponse{
 				Error:   "github_api_error",

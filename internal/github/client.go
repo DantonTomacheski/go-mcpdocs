@@ -13,6 +13,7 @@ import (
 	"github.com/dtomacheski/extract-data-go/internal/models"
 	"github.com/google/go-github/v53/github"
 	"golang.org/x/oauth2"
+	"path/filepath"
 )
 
 // Client represents a GitHub API client
@@ -48,36 +49,44 @@ func (c *Client) GetRepository(ctx context.Context, owner, repo string) (*models
 }
 
 // GetRepositoryDocumentation fetches documentation for a repository with concurrency, targeting a specific ref (tag/branch).
-// If ref is empty, it defaults to the repository's default branch.
-func (c *Client) GetRepositoryDocumentation(ctx context.Context, owner, repo, ref string, concurrencyLimit int) ([]models.Documentation, error) {
+// If specificRef is empty, it defaults to the defaultBranchFromHandler.
+func (c *Client) GetRepositoryDocumentation(ctx context.Context, owner, repo, defaultBranchFromHandler, specificRef string, concurrencyLimit int) ([]models.Documentation, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
 	// Define variable err at the function level so it's available throughout the function
 	var err error
 
-	// Determine the ref to use (provided ref or default branch)
+	// Determine the ref to use (provided specificRef or defaultBranchFromHandler)
 	var refToUse string
-	if ref == "" {
-		// No ref provided, use default branch
-		repository, err := c.GetRepository(ctx, owner, repo)
-		if err != nil {
-			log.Printf("Error getting repository %s/%s to determine default branch: %v\n", owner, repo, err)
-			return nil, err
+	if specificRef == "" {
+		// No specificRef provided, use defaultBranchFromHandler
+		if defaultBranchFromHandler == "" {
+			log.Printf("Error: Default branch not provided and specific ref is empty for %s/%s\n", owner, repo)
+			return nil, fmt.Errorf("default branch not provided for repository %s/%s and no specific ref given", owner, repo)
 		}
-		refToUse = repository.DefaultBranch
-		if refToUse == "" {
-			log.Printf("Error: Default branch is empty for %s/%s\n", owner, repo)
-			return nil, fmt.Errorf("default branch for repository %s/%s is empty", owner, repo)
-		}
-		log.Printf("No specific ref provided, using default branch '%s' for %s/%s", refToUse, owner, repo)
+		refToUse = defaultBranchFromHandler
+		log.Printf("No specific ref provided, using default branch '%s' from handler for %s/%s", refToUse, owner, repo)
 	} else {
-		// Use the provided ref
-		refToUse = ref
+		// Use the provided specificRef
+		refToUse = specificRef
 		log.Printf("Using provided ref '%s' for %s/%s", refToUse, owner, repo)
 	}
 
 	log.Printf("Attempting to fetch documentation for %s/%s from ref '%s'", owner, repo, refToUse)
+
+	// Attempt to get the commit for the refToUse to get the tree SHA
+	var rootTreeSHA string
+	commit, _, err := c.client.Repositories.GetCommit(ctx, owner, repo, refToUse, nil)
+	if err != nil {
+		log.Printf("Error getting commit for ref %s in %s/%s: %v", refToUse, owner, repo, err)
+		// Proceed without tree SHA if commit fetch fails, relying on search code logic
+	} else if commit != nil && commit.Commit != nil && commit.Commit.Tree != nil && commit.Commit.Tree.SHA != nil {
+		rootTreeSHA = *commit.Commit.Tree.SHA
+		log.Printf("Successfully obtained root tree SHA: %s for ref %s", rootTreeSHA, refToUse)
+	} else {
+		log.Printf("Commit or tree SHA is nil for ref %s in %s/%s", refToUse, owner, repo)
+	}
 
 	var docPaths []string
 	searchInDocs := false
@@ -156,27 +165,80 @@ func (c *Client) GetRepositoryDocumentation(ctx context.Context, owner, repo, re
 		}
 	}
 
-	// 2. Perform search based on whether a valid documentation path exists
-	if searchInDocs {
-		log.Printf("Listando arquivos de documentação na pasta %s de %s/%s no ref '%s'...\n", foundDocPath, owner, repo, refToUse)
-		// Usar nossa função de listagem recursiva no caminho encontrado
-		docPaths, err = c.listDocFilesInPath(ctx, owner, repo, foundDocPath, refToUse)
-		if err != nil {
-			log.Printf("Erro ao listar arquivos na pasta %s em %s/%s no ref '%s': %v\n", foundDocPath, owner, repo, refToUse, err)
-			return nil, fmt.Errorf("erro ao listar arquivos de documentação na pasta %s: %w", foundDocPath, err)
-		}
-		if len(docPaths) == 0 {
-			log.Printf("Nenhum arquivo de documentação encontrado na pasta %s em %s/%s no ref '%s'.\n", foundDocPath, owner, repo, refToUse)
-			searchInDocs = false
+	// If after checking common paths and specific root folders, no documentation path is set,
+	// and we have a rootTreeSHA, try to find all documentation files using the Git Tree API as a fallback.
+	if !searchInDocs && rootTreeSHA != "" {
+		log.Printf("No specific documentation folder found for %s/%s. Attempting to find all .md/.mdx files via Git Tree API using tree SHA %s", owner, repo, rootTreeSHA)
+		pathsFromTree, treeErr := c._getDocPathsFromTree(ctx, owner, repo, rootTreeSHA)
+		if treeErr != nil {
+			log.Printf("Error using Git Tree API for %s/%s (tree %s): %v. Proceeding without these results.", owner, repo, rootTreeSHA, treeErr)
+		} else if len(pathsFromTree) > 0 {
+			log.Printf("Found %d documentation files via Git Tree API for %s/%s.", len(pathsFromTree), owner, repo)
+			docPaths = pathsFromTree
+			// When using Git Tree API for a global search, we assume all found .md/.mdx files are desired.
+			// The 'searchInDocs' flag and 'foundDocPath' might not be relevant in the same way,
+			// as we are not limiting to a sub-folder. The content fetching loop below will handle these paths.
+			// We can set searchInDocs to true to indicate docs were found, even if not in a specific 'docs' folder.
+			searchInDocs = true // Mark that we found docs, so the next section processes them.
 		} else {
-			log.Printf("Encontrados %d arquivos de documentação na pasta %s de %s/%s no ref '%s'\n", len(docPaths), foundDocPath, owner, repo, refToUse)
+			log.Printf("No .md/.mdx files found via Git Tree API for %s/%s (tree %s).", owner, repo, rootTreeSHA)
 		}
 	}
 
-	// Se não existe pasta /docs/ ou não existem arquivos nela, retornamos um erro
-	if !searchInDocs {
-		log.Printf("Nenhuma pasta de documentação aplicável foi encontrada em %s/%s no ref '%s' após verificar caminhos comuns e a raiz do repositório.\n", owner, repo, refToUse)
-		return nil, errors.New("nenhuma pasta de documentação aplicável foi encontrada no repositório ou está vazia")
+	// 2. Perform search based on whether a valid documentation path exists
+	if searchInDocs {
+		// If docPaths is already populated by Git Tree API, this block will be skipped if foundDocPath is empty.
+		// We need to ensure that if docPaths has items from Tree API, we proceed to fetch content for them.
+		// The current structure uses 'foundDocPath' to list files within that specific path.
+		// If Tree API was used, 'docPaths' contains full paths and 'foundDocPath' might be empty.
+
+		// If 'foundDocPath' is set (meaning a specific 'docs' folder etc. was identified and preferred),
+		// and docPaths is not already populated by a global tree search, list files in that specific path.
+		if foundDocPath != "" && len(docPaths) == 0 { // Only if docPaths not already set by Tree API
+			log.Printf("Listando arquivos de documentação na pasta %s de %s/%s no ref '%s'...\n", foundDocPath, owner, repo, refToUse)
+			// Usar nossa função de listagem recursiva no foundDocPath
+			err := c.listFilesRecursively(ctx, owner, repo, foundDocPath, refToUse, &docPaths)
+			if err != nil {
+				log.Printf("Erro ao listar arquivos de documentação na pasta %s para %s/%s: %v\n", foundDocPath, owner, repo, err)
+				// Decidir se retorna erro ou continua com busca global se aplicável
+				// return nil, fmt.Errorf("failed to list documentation files in %s: %w", foundDocPath, err)
+			} else {
+				log.Printf("Successfully listed files in %s, docPaths count: %d", foundDocPath, len(docPaths))
+			}
+		} else if len(docPaths) > 0 {
+			log.Printf("Proceeding with %d paths found (possibly from Git Tree API or prior logic) for %s/%s on ref '%s'", len(docPaths), owner, repo, refToUse)
+		} else {
+			// This case means searchInDocs was true, but foundDocPath was empty, and docPaths is also empty.
+			// This might happen if searchInDocs was set true by Tree API but it returned no paths.
+			// Or if a docs folder was identified at root but listFilesRecursively failed or returned empty and Tree API also failed/empty.
+			log.Printf("Warning: searchInDocs is true but no docPaths were ultimately populated for %s/%s on ref '%s'. No documentation will be fetched.", owner, repo, refToUse)
+			// No specific error, but no docs will be processed. Client will get an empty list.
+		}
+
+	} else {
+		// searchInDocs is false, meaning no 'docs' folder found and Tree API fallback was not used or yielded nothing.
+		// Attempt a final global search for any .md/.mdx files in the repo if not done by Tree API already.
+		// This is similar to what Tree API does, but using searchForMarkdownFiles.
+		// Only do this if rootTreeSHA was not available (so Tree API wasn't attempted) OR if we want it as an ultimate fallback.
+		if rootTreeSHA == "" { // Only if Tree API wasn't already tried
+			log.Printf("Nenhuma pasta de documentação encontrada e Git Tree API not used/failed. Tentando busca global por arquivos .md/.mdx em %s/%s no ref '%s'...\n", owner, repo, refToUse)
+			// Note: searchForMarkdownFiles currently searches the default branch. If refToUse is critical here,
+			// searchForMarkdownFiles would need modification to include the ref in its query string.
+			// For now, we use it as is, which might be acceptable for a broad fallback.
+			globalPaths, err := c.searchForMarkdownFiles(ctx, owner, repo) // refToUse and extensions are implicit or handled within the method
+			if err != nil {
+				log.Printf("Erro na busca global por arquivos de documentação para %s/%s: %v\n", owner, repo, err)
+				// Não retorna erro fatal aqui, pode ser que o repositório não tenha docs
+			} else {
+				docPaths = append(docPaths, globalPaths...)
+			}
+		}
+	}
+
+	// Check if any documentation files were found
+	if len(docPaths) == 0 {
+		log.Printf("No documentation files found for %s/%s on ref '%s'.\n", owner, repo, refToUse)
+		return nil, errors.New("no documentation files found")
 	}
 
 	// 4. Fetch content for the determined docPaths
@@ -277,67 +339,37 @@ func (c *Client) GetRepositoryDocumentation(ctx context.Context, owner, repo, re
 	return documentation, nil
 }
 
-// findDocumentation searches for documentation files and directories
-func (c *Client) findDocumentation(ctx context.Context, owner, repo, branch string) ([]string, error) {
-	ctx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
-
-	// Common documentation paths - Expanded to match more documentation locations
-	commonPaths := []string{
-		"README.md",
-		"docs",
-		"doc",
-		"documentation",
-		"wiki",
-		".github",
-		"CONTRIBUTING.md",
-		"CHANGELOG.md",
-		"API.md",
-		"content/docs",
-		"website/docs",
-		"src/docs",
-		"pages/docs",
-		"examples",
-		"tutorials",
-		"guides",
-		"reference"}
-
-	var docPaths []string
-
-	// Check for README.md first (most common)
-	_, _, resp, err := c.client.Repositories.GetContents(ctx, owner, repo, "README.md", &github.RepositoryContentGetOptions{
-		Ref: branch,
-	})
-
-	if err == nil {
-		docPaths = append(docPaths, "README.md")
-	} else if resp != nil && resp.StatusCode != http.StatusNotFound {
-		return nil, processGitHubError(err)
+// _getDocPathsFromTree fetches all documentation file paths from a repository using the Git Tree API.
+// It filters for .md and .mdx files.
+func (c *Client) _getDocPathsFromTree(ctx context.Context, owner, repo, treeSHA string) ([]string, error) {
+	if treeSHA == "" {
+		return nil, fmt.Errorf("treeSHA cannot be empty for _getDocPathsFromTree")
 	}
 
-	// Check for other documentation files/directories
-	for _, path := range commonPaths[1:] {
-		_, dirContent, resp, err := c.client.Repositories.GetContents(ctx, owner, repo, path, &github.RepositoryContentGetOptions{
-			Ref: branch,
-		})
+	log.Printf("Fetching Git tree for %s/%s using SHA: %s", owner, repo, treeSHA)
+	tree, _, err := c.client.Git.GetTree(ctx, owner, repo, treeSHA, true) // true for recursive
+	if err != nil {
+		return nil, fmt.Errorf("failed to get git tree for %s/%s (SHA: %s): %w", owner, repo, treeSHA, err)
+	}
 
-		if err == nil {
-			if len(dirContent) > 0 {
-				// If it's a directory, add all markdown files
-				for _, content := range dirContent {
-					if content.GetType() == "file" && (isMarkdownFile(content.GetName()) || isDocumentationFile(content.GetName())) {
-						docPaths = append(docPaths, content.GetPath())
-					}
-				}
-			} else {
-				// If it's a file, just add it
-				docPaths = append(docPaths, path)
+	if tree.GetTruncated() {
+		log.Printf("Warning: Git tree for %s/%s (SHA: %s) was truncated. Some files may be missing.", owner, repo, treeSHA)
+		// Consider if we need to handle this more actively, e.g., by returning an error or specific info.
+	}
+
+	var docPaths []string
+	docExtensions := map[string]bool{".md": true, ".mdx": true}
+
+	for _, entry := range tree.Entries {
+		if entry.GetType() == "blob" {
+			ext := strings.ToLower(filepath.Ext(entry.GetPath()))
+			if docExtensions[ext] {
+				docPaths = append(docPaths, entry.GetPath())
 			}
-		} else if resp != nil && resp.StatusCode != http.StatusNotFound {
-			return nil, processGitHubError(err)
 		}
 	}
 
+	log.Printf("Found %d documentation files (.md, .mdx) via Git Tree API for %s/%s (tree %s)", len(docPaths), owner, repo, treeSHA)
 	return docPaths, nil
 }
 
@@ -504,49 +536,6 @@ func (c *Client) searchForMarkdownFiles(ctx context.Context, owner, repo string)
 	return allPaths, nil
 }
 
-// searchForMarkdownFilesInPath uses GitHub Search API to find markdown files in a specific path of the repository
-func (c *Client) searchForMarkdownFilesInPath(ctx context.Context, owner, repo, path string) ([]string, error) {
-	ctx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
 
-	query := fmt.Sprintf("repo:%s/%s path:%s extension:md", owner, repo, path)
-	var allPaths []string
-	opts := &github.SearchOptions{
-		ListOptions: github.ListOptions{
-			PerPage: 100,
-		},
-		TextMatch: false,
-	}
-
-	for {
-		result, resp, err := c.client.Search.Code(ctx, query, opts)
-		if err != nil {
-			// Handle rate limit specifically
-			if _, ok := err.(*github.RateLimitError); ok {
-				log.Printf("Rate limit hit during search, trying again after reset: %v\n", resp.Rate.Reset)
-				time.Sleep(time.Until(resp.Rate.Reset.Time))
-				continue // Retry the same page
-			}
-			log.Printf("Error searching code: %v\n", err)
-			return nil, processGitHubError(err) // Use centralized error processing
-		}
-
-		for _, item := range result.CodeResults {
-			if item.Path != nil {
-				if isMarkdownFile(*item.Path) || isDocumentationFile(*item.Name) {
-					allPaths = append(allPaths, *item.Path)
-				}
-			}
-		}
-
-		if resp.NextPage == 0 {
-			break // No more pages
-		}
-		opts.Page = resp.NextPage // Set the next page number
-	}
-
-	log.Printf("Found %d potential documentation files via search in path '%s' for %s/%s\n", len(allPaths), path, owner, repo)
-	return allPaths, nil
-}
 
 // listDocFilesInPath is defined in docs_lister.go - REMOVING DUPLICATE DEFINITION

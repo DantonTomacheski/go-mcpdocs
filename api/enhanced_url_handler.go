@@ -82,7 +82,19 @@ func (h *Handler) GetCodeSnippetsFromURL(c *gin.Context) {
 		return
 	} else {
 		var err error
-		documentation, err = h.GitHubClient.GetRepositoryDocumentation(ctx, owner, repo, "", h.WorkerPoolSize) // Pass empty string for tag
+		// Get repository details to find the default branch
+		var defaultBranchToUse string
+		repoDetails, detailsErr := h.GitHubClient.GetRepository(ctx, owner, repo) // Assuming owner & repo are defined in this scope
+		if detailsErr != nil {
+			h.Logger.Printf("Error fetching repository details for %s/%s in enhanced_url_handler: %v", owner, repo, detailsErr)
+			// Handle error appropriately, perhaps return an error response
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed_to_get_repo_details", Message: detailsErr.Error()})
+			return
+		} else if repoDetails != nil {
+			defaultBranchToUse = repoDetails.DefaultBranch
+		}
+
+		documentation, err = h.GitHubClient.GetRepositoryDocumentation(ctx, owner, repo, defaultBranchToUse, "", h.WorkerPoolSize)
 		if err != nil {
 			statusCode := http.StatusInternalServerError
 			if err.Error() == "repository not found" {
